@@ -1,0 +1,34 @@
+name: flutter_directory_tree_example
+description: "A new Flutter project."
+publish_to: none
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+  flutter_directory_tree: ^1.0.0
+  directory_tree: ^1.0.0
+  resizable_splitter: ^1.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+
+
+flutter:
+
+  uses-material-design: true
+
+dependency_overrides:
+  flutter_directory_tree:
+    path: ../
+  directory_tree:
+    path: ../packages/directory_tree
