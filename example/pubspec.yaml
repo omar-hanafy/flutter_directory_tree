@@ -12,9 +12,10 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
-  flutter_directory_tree: ^1.0.0
   directory_tree: ^1.0.0
-  resizable_splitter: ^1.0.0
+  flutter_directory_tree:
+    path: ../
+  resizable_splitter: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -24,11 +25,4 @@ dev_dependencies:
 
 
 flutter:
-
   uses-material-design: true
-
-dependency_overrides:
-  flutter_directory_tree:
-    path: ../
-  directory_tree:
-    path: ../packages/directory_tree
