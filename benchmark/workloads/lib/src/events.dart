@@ -22,7 +22,9 @@ abstract final class BenchEvent {
   /// `completed_runs`. The runner restarts its per-step budget on each one.
   static const String phase = 'phase';
 
-  /// One per operation: `record`, the finished measurement (or an `error`).
+  /// One per operation: `record`, the finished measurement (or an `error`,
+  /// or `unavailable` with the reason the implementation cannot measure the
+  /// operation yet).
   static const String record = 'record';
 
   /// Once, last.

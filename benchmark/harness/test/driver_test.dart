@@ -6,11 +6,23 @@ import 'package:flutter_test/flutter_test.dart';
 /// to check the harness and the expectations independently of any tree
 /// package.
 class _ReferenceSubject extends BenchSubject {
-  _ReferenceSubject(this.workload, {this.failIn, this.failInRun});
+  _ReferenceSubject(
+    this.workload, {
+    this.failIn,
+    this.failInRun,
+    this.unavailable = const {},
+  });
 
   final Workload workload;
   final String? failIn;
   final String? failInRun;
+
+  /// Operations this subject reports it cannot measure.
+  final Set<String> unavailable;
+
+  /// The operations [setUp] was called for, the first call of every
+  /// measured operation.
+  final List<String> setUps = [];
 
   late final List<String> _all = () {
     final folders = <String>{
@@ -43,7 +55,12 @@ class _ReferenceSubject extends BenchSubject {
   ];
 
   @override
+  String? unavailableReason(String operation) =>
+      unavailable.contains(operation) ? 'no $operation here' : null;
+
+  @override
   void setUp(String operation) {
+    setUps.add(operation);
     if (operation == failIn) throw StateError('set-up of $operation broke');
     _rows = operation == 'expand_all' ? _topLevel() : [..._all];
     _selected = {};
@@ -279,6 +296,37 @@ void main() {
     expect(byOperation['filter']!['error'], contains('run of filter broke'));
     expect(byOperation['select_range'], contains('median_ms'));
     expect(byOperation['jump_end'], contains('median_ms'));
+  });
+
+  testWidgets('records what the subject cannot measure as unavailable', (
+    tester,
+  ) async {
+    late _ReferenceSubject subject;
+    final (:records, :events) = await _run(
+      tester,
+      (w) => subject = _ReferenceSubject(w, unavailable: {'first_frame'}),
+    );
+    final byOperation = {for (final r in records) r['operation']: r};
+    expect(records.map((r) => r['operation']), standardOperations);
+    final record = byOperation['first_frame']!;
+    expect(record['unavailable'], 'no first_frame here');
+    expect(record['fingerprint'], isA<String>());
+    for (final key in ['error', 'median_ms', 'rows', 'built_rows']) {
+      expect(record, isNot(contains(key)));
+    }
+    // The harness asked nothing else about it: no set-up, no steps.
+    expect(subject.setUps, isNot(contains('first_frame')));
+    expect(events.where((e) => e['operation'] == 'first_frame'), isEmpty);
+    // Not a failure: the operations that list it as a prerequisite run.
+    final expected = WorkloadExpectations(
+      Workload.generate(WorkloadShape.deep, 300),
+    );
+    for (final operation in ['jump_middle', 'jump_end']) {
+      expect(byOperation[operation], contains('median_ms'));
+      expect(expected.check(operation, byOperation[operation]!), isEmpty);
+    }
+    expect(records.where((r) => r.containsKey('error')), isEmpty);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('measureFrame times one frame and fails when none runs', (

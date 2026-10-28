@@ -219,10 +219,12 @@ String _summary(BenchRecord r) {
     return '$head median ${formatMs(r['median_ms']! as num)} ms, '
         'min ${formatMs(r['min_ms']! as num)} ms';
   }
-  final error = r['error'] != null && r['blocked_by'] == null
-      ? ': ${r['error']}'
-      : '';
-  return '$head ${medianCell(r)}$error';
+  // Why it has no numbers: the error, or why the implementation cannot
+  // measure it yet (a blocked operation names its blocker in the cell).
+  final reason = r['blocked_by'] == null
+      ? r['error'] ?? r['unavailable']
+      : null;
+  return '$head ${medianCell(r)}${reason == null ? '' : ': $reason'}';
 }
 
 class _Options {

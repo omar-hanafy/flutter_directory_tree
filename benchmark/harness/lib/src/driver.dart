@@ -26,7 +26,9 @@ void emitBenchLine(String line) {
 /// event before every step, a `record` event per operation, and a `done`
 /// event; see [BenchEvent]. An operation that throws gets a record with an
 /// `error`, and operations whose prerequisites failed get an `error` with
-/// `blocked_by` instead of running. Frame operations render through
+/// `blocked_by` instead of running. An operation the subject cannot measure
+/// ([BenchSubject.unavailableReason]) gets a record with `unavailable`
+/// instead of numbers and is not a failure. Frame operations render through
 /// [frames], which must show a mounted [BenchHost].
 Future<List<Map<String, Object?>>> runBenchmark(
   BenchConfig config,
@@ -92,14 +94,17 @@ Future<List<Map<String, Object?>>> runBenchmark(
         failed.add(operation);
       } else {
         try {
-          data = await _measure(
-            operation,
-            config: config,
-            subject: subject,
-            view: view,
-            errors: errors,
-            phase: phase,
-          );
+          final unavailable = subject.unavailableReason(operation);
+          data = unavailable != null
+              ? {'unavailable': unavailable}
+              : await _measure(
+                  operation,
+                  config: config,
+                  subject: subject,
+                  view: view,
+                  errors: errors,
+                  phase: phase,
+                );
         } on Object catch (error, stack) {
           data = {'error': _describeError(error, stack)};
           failed.add(operation);

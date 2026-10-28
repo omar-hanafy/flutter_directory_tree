@@ -87,6 +87,9 @@ String medianCell(BenchRecord? r) {
   if (r['error'] != null) {
     return blockedBy != null ? 'error (blocked by $blockedBy)' : 'error';
   }
+  // The implementation cannot measure the operation yet; the details table
+  // gives the reason.
+  if (r['unavailable'] != null) return 'not available';
   return '';
 }
 
@@ -126,7 +129,7 @@ const Set<String> _known = {
   'implementation', 'mode', 'build_mode', 'shape', 'size', 'operation', //
   'runs', 'warmup', 'budget_ms', 'seed', 'fingerprint', 'median_ms', 'min_ms',
   'max_ms', 'machine', 'os', 'flutter', 'dart', 'timeout_ms', 'timeout_phase',
-  'blocked_by', 'completed_runs', 'error',
+  'blocked_by', 'completed_runs', 'error', 'unavailable',
 };
 
 /// The problems with [records]' counts, checked against each workload's
@@ -351,6 +354,8 @@ String renderMarkdown(
       if (r['blocked_by'] != null) 'blocked by ${r['blocked_by']}',
       if (r['error'] != null && r['blocked_by'] == null)
         'error: ${_escape('${r['error']}')}',
+      if (r['unavailable'] != null)
+        'not available: ${_escape('${r['unavailable']}')}',
     ];
     b.writeln(
       '| ${r['implementation']} | ${r['mode']} | ${r['operation']} '

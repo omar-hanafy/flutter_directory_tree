@@ -15,6 +15,7 @@ class _ScriptedProcess implements BenchProcess {
     this.operations, {
     this.stop,
     this.errorIn,
+    this.unavailableIn = const {},
     this.silent = false,
   }) {
     scheduleMicrotask(_play);
@@ -23,6 +24,10 @@ class _ScriptedProcess implements BenchProcess {
   final List<String> operations;
   final _Stop? stop;
   final String? errorIn;
+
+  /// Operations the subject cannot measure: like the harness, the process
+  /// reports no steps for them, only a record with `unavailable`.
+  final Set<String> unavailableIn;
   final bool silent;
   final _lines = StreamController<String>();
   final _exit = Completer<int>();
@@ -77,6 +82,18 @@ class _ScriptedProcess implements BenchProcess {
       'description': {'fingerprint': 'f00d'},
     });
     for (final operation in operations) {
+      if (unavailableIn.contains(operation)) {
+        _send({
+          'event': 'record',
+          'record': {
+            'implementation': 'v2',
+            'mode': 'jit',
+            'operation': operation,
+            'unavailable': 'no view yet',
+          },
+        });
+        continue;
+      }
       for (final (phase, runs) in [
         ('setup', 0),
         ('warmup', 0),
@@ -301,6 +318,24 @@ void main() {
       expect(records[blocked]!['blocked_by'], 'expand_all');
       expect(records[blocked], isNot(contains('timeout_ms')));
     }
+  });
+
+  test('an unavailable operation is recorded and blocks nothing', () async {
+    final (:records, :starts, :processes) = await _coordinate([
+      (ops) => _ScriptedProcess(ops, unavailableIn: const {'first_frame'}),
+    ]);
+    expect(starts, [_run.operations]);
+    expect(records.keys, _run.operations);
+    expect(records['first_frame']!['unavailable'], 'no view yet');
+    expect(records['first_frame'], isNot(contains('error')));
+    expect(records['first_frame']!['budget_ms'], 300);
+    // Both list first_frame as a prerequisite: an operation the subject
+    // cannot measure is not a failure, so they still run.
+    for (final dependent in ['jump_middle', 'jump_end']) {
+      expect(records[dependent]!['median_ms'], 1.5);
+      expect(records[dependent], isNot(contains('blocked_by')));
+    }
+    expect(processes.single.killed, isFalse);
   });
 
   test('records the process repeats or never asked for are ignored', () async {

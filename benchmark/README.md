@@ -15,7 +15,7 @@ package with its own `pubspec.yaml`, `pubspec.lock`, and
 | `workloads/` | Pure Dart. The seeded path generator ported from directory_tree's benchmarks (same algorithm, seeds, and fingerprints), the operation catalog, the line protocol between the processes and the runner, and `WorkloadExpectations`, the counts every operation must report. |
 | `harness/` | Flutter. The `BenchSubject` interface, the driver (warm-up and timed runs, frame timing, JSON lines), and the two entry points: `defineJitBenchmark` (a widget test) and `runAotBenchmark` (an app that exits when it is done). |
 | `v1/` | Flutter app. The subject for `flutter_directory_tree: 1.0.0` and `directory_tree: 1.0.0` from pub.dev, exactly. `macos/` is the runner of the AOT build. |
-| `v2/` | Added in Wave 3; see [Adding v2](#adding-v2). |
+| `v2/` | Flutter app. The subject for the 2.0.0 code in this repository: `flutter_directory_tree` by path from the repository root, and directory_tree from its local checkout through `pubspec_overrides.yaml` until 2.0.0 is on pub.dev. `macos/` is the runner of the AOT build. Its frame operations wait for the 2.0.0 tree view; see [The v2 subject](#the-v2-subject). |
 | `runner/` | Pure Dart CLI. Runs every implementation in both modes, enforces the per-step time budget, merges the records into `results.jsonl`, and writes `RESULTS.md`. |
 | `RESULTS.md` | The latest report. |
 | `results.jsonl` | Every stored record, one JSON object per line (the source of `RESULTS.md`). |
@@ -93,15 +93,16 @@ See `workloads/lib/src/events.dart`.
 
 Each package's `test/` holds only cheap correctness checks (counts, ranges,
 fingerprints; no timing assertions). The timing runs live outside `test/`
-(`v1/bench/jit_bench_test.dart` and `v1/lib/main.dart`), so `flutter test`
-never runs them.
+(`<impl>/bench/jit_bench_test.dart` and `<impl>/lib/main.dart`), so
+`flutter test` never runs them.
 
 | Package | Command | What it checks |
 |---|---|---|
 | `workloads/` | `dart test` | Fingerprints pinned at 10k, 100k, and 1M (equal to directory_tree's), the generator's properties, `WorkloadExpectations` against the row counts directory_tree's v1 and v2 benchmarks measured, the catalog, the line format. |
-| `harness/` | `flutter test` | The driver with a reference subject built on plain lists: every operation reports the expected counts, the event sequence, failures and blocked operations, frame measurement, `RowBuildProbe`, argument parsing. |
+| `harness/` | `flutter test` | The driver with a reference subject built on plain lists: every operation reports the expected counts, the event sequence, failures and blocked operations, operations a subject cannot measure, frame measurement, `RowBuildProbe`, argument parsing. |
 | `v1/` | `flutter test` | Every operation through the harness on deep and wide 10k: all counts equal `WorkloadExpectations`; the views build only the rows on screen. |
-| `runner/` | `dart test` | The watchdog (timeouts in every phase, restarts, blocked operations, crashes) with scripted processes, killing a real process tree, the report. |
+| `v2/` | `flutter test` | Every operation through the harness on deep and wide 10k: all counts equal `WorkloadExpectations`, and `nodes` is files plus folders; `toggle` is one incremental splice of exactly the hidden rows, reusing the other row objects; the frame operations are recorded as not available until the views land. |
+| `runner/` | `dart test` | The watchdog (timeouts in every phase, restarts, blocked and unavailable operations, crashes) with scripted processes, killing a real process tree, the report. |
 
 Every package is also clean under `dart format` and
 `flutter analyze --fatal-infos` (`dart analyze --fatal-infos` for the pure
@@ -191,6 +192,12 @@ for v1.
   remaining operations. An operation whose prerequisites timed out or failed
   is recorded as blocked (`blocked_by`) rather than spending the budget
   again. A process that crashes fails the operation it was in.
+- Unavailable operations: a subject whose implementation lacks the API for
+  an operation (`BenchSubject.unavailableReason`) gets a record with
+  `unavailable` (the reason) instead of numbers. It is not a failure: the
+  process and the runner exit successfully, nothing is blocked by it,
+  `RESULTS.md` shows "not available" with the reason in the details, and a
+  later run that measures it replaces the record.
 
 A record looks like this (one line in `results.jsonl`):
 
@@ -198,116 +205,87 @@ A record looks like this (one line in `results.jsonl`):
 {"implementation":"v1","mode":"aot","build_mode":"profile","shape":"deep","size":10000,"operation":"toggle","runs":5,"warmup":1,"seed":20261028,"fingerprint":"131893f6","median_ms":1.303,"min_ms":1.278,"max_ms":3.277,"rows":10647,"hidden_rows":898,"dart":"3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"macos_arm64\"","budget_ms":60000,"machine":"Apple M2 Pro (arm64), 12 logical cores, 16 GB","os":"macOS 27.0.1 (26A434)","flutter":"Flutter 3.47.7 (stable, framework abaf9c5237, engine deb287481e)"}
 ```
 
-## Adding v2
+## The v2 subject
 
-Wave 3 adds `benchmark/v2`, the subject for the 2.0.0 code in this
-repository. The runner and the report already have its column (`v2` is in
-`knownImplementations` in `runner/lib/src/report.dart`); nothing outside
-`benchmark/v2` changes.
+`benchmark/v2` measures the 2.0.0 code in this repository. It was created
+with `flutter create --empty --platforms=macos --project-name fdt_bench_v2
+--org com.example v2` and given v1's `MainFlutterWindow.swift` (the
+benchmark window settings) and `analysis_options.yaml`. Its `pubspec.yaml`
+depends on the repository root by path, and its `pubspec_overrides.yaml`
+repeats the root's, because the root's overrides do not apply to packages
+that depend on it (the release commit deletes it with the others). `v1/`
+must not get one: it resolves directory_tree 1.0.0 from pub.dev, and 1.0.0's
+code (`TreeBuilder`, `TreeData`, `VisibleNode`) does not exist in 2.0.0.
 
-1. Create the app with its macOS runner, keep v1's benchmark window
-   settings, and drop the generated files the suite does not use:
+`lib/v2_subject.dart` runs the operations through the public 2.0.0 API,
+from the same starting states as v1's subject:
 
-   ```sh
-   cd benchmark
-   flutter create --empty --platforms=macos --project-name fdt_bench_v2 --org com.example v2
-   cp v1/macos/Runner/MainFlutterWindow.swift v2/macos/Runner/
-   cp v1/analysis_options.yaml v2/
-   rm -rf v2/.idea v2/fdt_bench_v2.iml v2/README.md
-   ```
+| Operation | 2.0.0 calls |
+|---|---|
+| entries (untimed) | `[for (final p in workload.paths) TreeEntry<Never>.file(p)]` |
+| `build` | `DirectoryTree<Never>.build(entries)`, then `DirectoryTreeController<Never>(tree:, expansion: ExpansionState.withExpanded([tree.idOf(workloadRoot)!]))`; counts `rows: controller.rows.length` and `nodes: tree.length` (files plus folders: 2.0.0 stores no extra nodes) |
+| `expand_all` | before each run `controller..collapseAll()..expand(rootId)`; run `controller.expandAll()` |
+| `toggle` | before each run re-expand the target when it is collapsed; run `controller.toggleExpansion(targetId)`, an incremental collapse (one splice of the target's rows, which the test checks) |
+| `filter` | before each run `controller.query = ''`; run `controller.query = workload.filterQuery` |
+| `select_range` | anchor and target are the ids of rows `length ~/ 4` and `length * 3 ~/ 4`; before each run `controller.select(anchor, focus: false)`; run `controller.extendSelection(target, focus: false)`; counts `selected: controller.selection.length` |
+| views | not available yet; see below |
 
-2. Replace `benchmark/v2/pubspec.yaml`, depending on the repository root by
-   path:
+`focus: false` matches 1.0.0, whose controller has no keyboard focus.
 
-   ```yaml
-   name: fdt_bench_v2
-   description: Benchmarks the flutter_directory_tree 2.0.0 code in this repository.
-   publish_to: none
-   version: 2.0.0
+### Adding the v2 views
 
-   environment:
-     sdk: ^3.13.5
-     flutter: ">=3.47.7"
+The frame operations need `SliverDirectoryTree` (task V), which is not
+merged yet. Until then `V2Subject.unavailableReason` reports them, and every
+run records them as not available (see [Measurement](#measurement)). Once
+`lib/src/widgets/sliver_directory_tree.dart` is on the branch:
 
-   dependencies:
-     fdt_bench_harness:
-       path: ../harness
-     fdt_bench_workloads:
-       path: ../workloads
-     flutter:
-       sdk: flutter
-     flutter_directory_tree:
-       path: ../..
-
-   dev_dependencies:
-     flutter_lints: ^6.0.0
-     flutter_test:
-       sdk: flutter
-
-   flutter:
-     uses-material-design: true
-   ```
-
-3. Add `benchmark/v2/pubspec_overrides.yaml`, the same as the root's,
-   because the root's overrides do not apply to packages that depend on it
-   (the release commit deletes it with the others), then `flutter pub get`:
-
-   ```yaml
-   # Development only, removed in the release commit: resolves the unreleased
-   # directory_tree 2.0.0 from its local checkout until it is on pub.dev.
-   dependency_overrides:
-     directory_tree:
-       path: /Users/omarhanafy/Development/MyProjects/packages/directory_tree/directory_tree
-   ```
-
-   `v1/` must not get one: it resolves directory_tree 1.0.0 from pub.dev, and
-   1.0.0's code (`TreeBuilder`, `TreeData`, `VisibleNode`) does not exist in
-   2.0.0.
-
-4. `lib/v2_subject.dart`: a `BenchSubject` (see `harness/lib/src/subject.dart`
-   and `v1/lib/v1_subject.dart`) with the same operations through the 2.0.0
-   API (Part 1.1 of the plan; check the real code):
-
-   | Operation | 2.0.0 calls |
-   |---|---|
-   | entries (untimed) | `[for (final p in workload.paths) TreeEntry<Never>.file(p)]` |
-   | `build` | `final tree = DirectoryTree<Never>.build(entries);` then `DirectoryTreeController<Never>(tree: tree, expansion: ExpansionState.withExpanded([tree.idOf(workloadRoot)!]))`; counts `rows: controller.rows.length`, `nodes: tree.length` |
-   | `expand_all` | before each run `controller..collapseAll()..expand(rootId)`; run `controller.expandAll()` |
-   | `toggle` | before each run re-expand `tree.idOf(workload.toggleTarget)!` when collapsed; run `controller.toggleExpansion(id)` (incremental) |
-   | `filter` | before each run `controller.query = ''`; run `controller.query = workload.filterQuery` |
-   | `select_range` | anchor and target are the ids of rows `length ~/ 4` and `length * 3 ~/ 4`; before each run `controller.select(anchor, focus: false)`; run `controller.extendSelection(target, focus: false)`; counts `selected: controller.selection.length` |
-   | views | `DirectoryTreeTheme(data: const DirectoryTreeThemeData(rowExtent: 28), child: DirectoryTreeView<Never>(controller:, scrollController:, rowBuilder:))`, the row builder returning `RowBuildProbe(index: details.index, onBuilt: onRowBuilt, child: DirectoryTreeRow<Never>(details: details))`; until `DirectoryTreeView` lands, `CustomScrollView(controller: scrollController, slivers: [SliverDirectoryTree<Never>(...)])` |
-   | `viewRowCount` | `controller.rows.length` |
-
-   `focus: false` matches 1.0.0, whose controller has no focus. The 28 px
-   row extent is 1.0.0's row height, so both versions show the same rows.
-   2.0.0's default depends on the platform density (28 px on macOS, 36 px in
-   `flutter test`, whose default target is Android), which would make the
-   frame operations compare different amounts of content. Count rows with
-   `RowBuildProbe` (in `harness/lib/src/frames.dart`) rather than in the
-   `rowBuilder` closure: 2.0.0 caches row widgets per id, so a remounted row
-   may not call the builder again, but its probe still builds. Keep the
-   starting states of v1's subject (the counts must equal
-   `WorkloadExpectations`; the tests and the report check them).
-
-5. Replace `lib/main.dart` and add `bench/jit_bench_test.dart`, as in v1:
+1. In `v2/lib/v2_subject.dart`, delete `viewsUnavailable` and the
+   `unavailableReason` override, and build the view:
 
    ```dart
-   // lib/main.dart
-   Future<void> main(List<String> args) =>
-       runAotBenchmark(args, implementation: 'v2', createSubject: createV2Subject);
-
-   // bench/jit_bench_test.dart
-   void main() =>
-       defineJitBenchmark(implementation: 'v2', createSubject: createV2Subject);
+   @override
+   Widget buildView({
+     required ScrollController scrollController,
+     required RowBuiltCallback onRowBuilt,
+   }) {
+     return DirectoryTreeTheme(
+       data: const DirectoryTreeThemeData(rowExtent: 28),
+       child: CustomScrollView(
+         controller: scrollController,
+         slivers: [
+           SliverDirectoryTree<Never>(
+             controller: controller,
+             rowBuilder: (context, details) => RowBuildProbe(
+               index: details.index,
+               onBuilt: onRowBuilt,
+               child: DirectoryTreeRow<Never>(details: details),
+             ),
+           ),
+         ],
+       ),
+     );
+   }
    ```
 
-6. `test/v2_subject_test.dart`: a copy of `v1/test/v1_subject_test.dart`
-   with the `nodes` check changed for 2.0.0, which stores no extra nodes
-   (expect `size + folderCount`). With 28 px rows the `built_rows` range is
-   the same as v1's.
+   When `DirectoryTreeView` (task A) lands, the view can become
+   `DirectoryTreeView<Never>(controller:, scrollController:, rowBuilder:)`
+   inside the same `DirectoryTreeTheme`.
 
-7. Gates in `benchmark/v2`: `dart format --output=none --set-exit-if-changed .`,
+   The 28 px row extent is 1.0.0's row height, so both versions show the
+   same rows. 2.0.0's default depends on the platform density (28 px on
+   macOS, 36 px in `flutter test`, whose default target is Android), which
+   would make the frame operations compare different amounts of content.
+   Count rows with `RowBuildProbe` (in `harness/lib/src/frames.dart`)
+   rather than in the `rowBuilder` closure: 2.0.0 caches row widgets per
+   id, so a remounted row may not call the builder again, but its probe
+   still builds.
+
+2. In `v2/test/v2_subject_test.dart`, check the frame records the way v1's
+   test does instead of expecting them to be unavailable: every record
+   passes `WorkloadExpectations.check`, and `built_rows` is within 22 to 42
+   (28 px rows in the 600 px box plus the cache extent, as for v1).
+
+3. Gates in `benchmark/v2`: `dart format --output=none --set-exit-if-changed .`,
    `flutter analyze --fatal-infos`, `flutter test`. Then, from
    `benchmark/runner`, measure both versions in one session, so the columns
    share the machine's state (the stored v1 baseline was measured while
@@ -332,6 +310,13 @@ repository. The runner and the report already have its column (`v2` is in
 - JIT numbers are debug-mode numbers: asserts run (1.0.0's builder validates
   the whole tree in an assert), and debug widget code is slower. Use them to
   compare versions under `flutter test`, not as what users see.
+- JIT medians of sub-millisecond operations can include JIT tiering: the
+  first calls of a code path run before the compiler has optimized it, and
+  one warm-up run is not always enough. For example, 2.0.0's `expand_all` on
+  deep 10k took 7.7, 9.4, 0.95, and 2.0 ms on its first four calls and about
+  0.3 ms from the fifth on. The fastest-run table is closer to the steady
+  state, and AOT builds have no tiering; `--warmup 5` compares steady states
+  in JIT.
 - Garbage collection dominates the spread on the 100k and 1M workloads, so
   `RESULTS.md` also has a fastest-run table per mode.
 - Frame operations measure UI-thread time only; raster (GPU) time is not

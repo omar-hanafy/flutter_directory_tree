@@ -25,7 +25,23 @@ typedef RowBuiltCallback = void Function(int index);
 /// Frame operations (`first_frame`, `jump_middle`, `jump_end`): the harness
 /// calls [setUp], mounts [buildView] in the benchmark host, times the frames
 /// itself, and reads [viewRowCount]; then it calls [tearDown].
+///
+/// Before any of that, the harness asks [unavailableReason]; an operation
+/// the implementation cannot measure yet is recorded with that reason
+/// instead of numbers.
 abstract class BenchSubject {
+  /// Why this implementation cannot measure [operation] yet, or null (the
+  /// default) when it can.
+  ///
+  /// For an operation whose API the implementation does not have yet, such
+  /// as a view that is still being written. The harness then records the
+  /// operation with `unavailable` set to the reason and no numbers, calls no
+  /// other method for it, and does not count it as a failure: the other
+  /// operations run as usual (also those that list it as a prerequisite, so
+  /// they must be unavailable too or not need its state), and the process
+  /// exits successfully when nothing else failed.
+  String? unavailableReason(String operation) => null;
+
   /// Prepares [operation], without timing it.
   void setUp(String operation);
 

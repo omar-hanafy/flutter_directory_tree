@@ -209,6 +209,54 @@ void main() {
     expect(md, isNot(contains(String.fromCharCode(0x2014))));
   });
 
+  test('an unavailable operation shows "not available" and its reason', () {
+    final v1 = _record(
+      'v1',
+      'first_frame',
+      fields: {
+        'median_ms': 2.0,
+        'min_ms': 1.5,
+        'max_ms': 3.0,
+        'rows': expected.allRows,
+        'built_rows': 31,
+        'first_index': 0,
+        'last_index': 30,
+      },
+    );
+    final v2 = _record(
+      'v2',
+      'first_frame',
+      fields: {'unavailable': 'the view is not merged yet'},
+    );
+    expect(medianCell(v2), 'not available');
+    expect(minCell(v2), 'not available');
+    expect(speedupCell(v1, v2), '');
+    expect(countProblems([v1, v2], expectations), isEmpty);
+
+    final md = renderMarkdown(
+      [v1, v2],
+      workloads: [workload],
+      expectations: expectations,
+      generatedAt: DateTime.utc(2026),
+    );
+    expect(
+      md,
+      contains('| first_frame | deep | 10,000 | 2.00 | not available |  |'),
+    );
+    expect(
+      md,
+      contains('| first_frame | deep | 10,000 | 1.50 | not available |  |'),
+    );
+    expect(
+      md,
+      contains(
+        '| v2 | aot | first_frame | deep | 10,000 |  |  |  '
+        '| not available: the view is not merged yet |',
+      ),
+    );
+    expect(md, contains('Every measured record reports the counts'));
+  });
+
   test('renderMarkdown warns about mismatched workloads and counts', () {
     final md = renderMarkdown(
       [
