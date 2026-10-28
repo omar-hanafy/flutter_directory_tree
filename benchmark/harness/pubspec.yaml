@@ -1,0 +1,24 @@
+name: fdt_bench_harness
+description: >-
+  Shared measurement harness for the flutter_directory_tree benchmarks: the
+  subject interface, warm-up and timed runs, frame timing inside the frame,
+  JSON-lines output, and the JIT (flutter test) and AOT (macOS profile app)
+  entry points.
+publish_to: none
+
+environment:
+  sdk: ^3.13.5
+  flutter: ">=3.47.7"
+
+dependencies:
+  fdt_bench_workloads:
+    path: ../workloads
+  flutter:
+    sdk: flutter
+  # A regular dependency: lib/jit.dart defines the JIT benchmark as a widget
+  # test. The AOT entry point (lib/harness.dart) never imports it.
+  flutter_test:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
