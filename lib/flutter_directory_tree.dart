@@ -76,3 +76,8 @@ export 'package:flutter_directory_tree/src/controller/directory_tree_controller.
 export 'package:flutter_directory_tree/src/controller/directory_tree_viewport.dart';
 export 'package:flutter_directory_tree/src/controller/tree_focus_move.dart';
 export 'package:flutter_directory_tree/src/controller/tree_rows_change.dart';
+export 'package:flutter_directory_tree/src/rendering/directory_tree_indent_guides.dart';
+export 'package:flutter_directory_tree/src/rendering/directory_tree_label.dart';
+export 'package:flutter_directory_tree/src/theme/directory_tree_icon_set.dart';
+export 'package:flutter_directory_tree/src/theme/directory_tree_theme.dart';
+export 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';

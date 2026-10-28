@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Every type the barrel exports: the controller layer and the re-exported
+/// Every type the barrel exports: the Flutter layer and the re-exported
 /// `package:directory_tree` core.
 const List<Type> exportedTypes = <Type>[
   // Controller.
@@ -19,6 +19,18 @@ const List<Type> exportedTypes = <Type>[
   DirectoryLoadStatus,
   TreeFocusMove,
   TreeSelectionUpdate,
+  // Theme and rendering.
+  DirectoryTreeGuideStyle,
+  DirectoryTreeIconSet,
+  DirectoryTreeIndentGuides,
+  DirectoryTreeLabel,
+  DirectoryTreeTheme,
+  DirectoryTreeThemeData,
+  // Rows.
+  DirectoryTreeCheckboxMode,
+  DirectoryTreeRowBuilder<Object?>,
+  DirectoryTreeRowDecorator<Object?>,
+  DirectoryTreeRowDetails<Object?>,
   // Core.
   CheckState,
   DirectoryNode<Object?>,

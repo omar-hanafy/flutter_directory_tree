@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2.0.0
+
+- Ground-up rewrite on directory_tree 2.0.0 (release notes in progress).
+
 ## [1.0.0] - 2026-01-02
 
 ### Added
