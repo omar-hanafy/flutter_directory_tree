@@ -85,10 +85,9 @@ jobs:
       - name: Analyze
         run: flutter analyze --fatal-infos
 
-      # Proves every lib/fix_data.yaml transform against test_fixes/ goldens.
-      # Skipped until the package ships data-driven fixes.
+      # Proves every lib/fix_data.yaml transform against the test_fixes/
+      # goldens (each input compiles against 1.0.0; see AGENTS.md).
       - name: Verify dart fix migrations
-        if: hashFiles('test_fixes/**') != ''
         run: dart fix test_fixes --compare-to-golden
 
       - name: Repository checks
