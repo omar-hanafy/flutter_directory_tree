@@ -1,0 +1,10 @@
+import 'package:flutter_directory_tree/flutter_directory_tree.dart';
+
+// A subclass that forwards the renamed parameters to the super constructor.
+class CompactTheme extends DirectoryTreeThemeData {
+  const CompactTheme() : super(indentWidth: 12, rowExtent: 22);
+}
+
+class TallTheme extends DirectoryTreeThemeData {
+  TallTheme(double extent) : super(rowExtent: extent * 2);
+}

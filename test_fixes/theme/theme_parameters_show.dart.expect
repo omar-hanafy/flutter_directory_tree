@@ -1,0 +1,10 @@
+import 'package:flutter_directory_tree/flutter_directory_tree.dart'
+    show DirectoryTreeThemeData;
+
+const DirectoryTreeThemeData compact = DirectoryTreeThemeData(
+  indentWidth: 12,
+  rowExtent: 22,
+);
+
+DirectoryTreeThemeData denser(DirectoryTreeThemeData base) =>
+    base.copyWith(indentWidth: 10, rowExtent: 24);
