@@ -33,6 +33,10 @@ enum DirectoryTreeCheckboxMode {
 /// built-in click, hover, and semantics handling, so the builder only
 /// draws. It runs again only for rows whose [DirectoryTreeRowDetails]
 /// changed.
+///
+/// The view's semantics node for the row already carries the row label and
+/// its selected, expanded, and checked states; wrap text that repeats the
+/// label in [ExcludeSemantics] so screen readers do not read it twice.
 typedef DirectoryTreeRowBuilder<T> = Widget Function(
   BuildContext context,
   DirectoryTreeRowDetails<T> details,

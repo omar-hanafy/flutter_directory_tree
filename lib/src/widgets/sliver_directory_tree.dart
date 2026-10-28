@@ -1,0 +1,1279 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:directory_tree/directory_tree.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
+import 'package:flutter_directory_tree/src/controller/directory_tree_viewport.dart';
+// Imported only so documentation references resolve.
+import 'package:flutter_directory_tree/src/controller/tree_focus_move.dart';
+import 'package:flutter_directory_tree/src/controller/tree_rows_change.dart';
+import 'package:flutter_directory_tree/src/theme/directory_tree_theme.dart';
+import 'package:flutter_directory_tree/src/widgets/directory_tree_checkbox.dart';
+import 'package:flutter_directory_tree/src/widgets/directory_tree_expander.dart';
+import 'package:flutter_directory_tree/src/widgets/directory_tree_row.dart';
+import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';
+import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
+
+/// The visible rows of a [DirectoryTreeController] as a sliver, for a
+/// [CustomScrollView].
+///
+/// Rows are virtualized: only the rows in the viewport (plus the scroll
+/// view's cache extent) are built, at the fixed height
+/// [DirectoryTreeThemeData.rowExtent], so a tree of a million rows scrolls
+/// like a short list. The sliver listens to the controller and rebuilds
+/// only the rows whose [DirectoryTreeRowDetails] changed: selecting,
+/// focusing, checking, or hovering a row rebuilds that row and nothing
+/// else.
+///
+/// ```dart
+/// CustomScrollView(
+///   slivers: [
+///     SliverDirectoryTree<Object?>(
+///       controller: controller,
+///       onActivate: (row) => openFile(row.node),
+///     ),
+///   ],
+/// )
+/// ```
+///
+/// ## Mouse, touch, and keyboard focus
+///
+/// Clicks act when the pointer goes up, with no double-click delay. A
+/// primary click gives the tree keyboard focus (the nearest [Focus] above
+/// the sliver, normally the tree's keyboard handling) and focuses the row
+/// (the controller's keyboard cursor). With [selectOnTap] it also selects:
+/// a plain click selects the row, Shift extends the selection to it, and
+/// Command (macOS and iOS) or Control (other platforms) toggles it. With
+/// [expandOnTap] a plain click (no modifier) also expands or collapses a
+/// directory. [onRowTap] runs last.
+///
+/// A second primary click on the same row within [kDoubleTapTimeout]
+/// activates it: a directory expands or collapses exactly once per
+/// activation (the second click of a double-click does not toggle it again
+/// when the first one did through [expandOnTap]), then [onActivate] runs
+/// for files and directories alike, after that click's [onRowTap].
+///
+/// A secondary click (and on macOS a Control-click), or a touch long-press
+/// while [secondaryTapOnLongPress] is true, selects the row unless it is
+/// already selected (with [selectOnTap]; otherwise it only focuses it),
+/// then calls [onRowSecondaryTap] with the pointer's global position. Use
+/// it to open a context menu for the selection.
+///
+/// Clicks on a row's [DirectoryTreeExpander] or [DirectoryTreeCheckbox]
+/// toggle them and never select or activate the row. Hover is tracked for
+/// mouse pointers only.
+///
+/// ## Scrolling and animation
+///
+/// The sliver implements [DirectoryTreeViewport] and attaches itself to the
+/// controller, so [DirectoryTreeController.ensureVisible], focus moves, and
+/// [TreeFocusMove.pageDown] scroll it; it works with any slivers before it
+/// and inside a [SliverPadding].
+///
+/// When the rows change, the first visible row keeps its position on
+/// screen in the same frame (no frame shows a jump), so data refreshes,
+/// lazy loads, and expansions above the viewport do not move what the user
+/// is looking at. When that row is gone, the next visible row that still
+/// exists keeps its place instead, and when none does, the scroll offset is
+/// only clamped to the new content. When the whole tree is scrolled past,
+/// the content after it stays in place.
+///
+/// Rows inserted by an incremental expand or a lazy load (a
+/// [TreeRowsChange] splice) fade and slide in over
+/// [DirectoryTreeThemeData.animationDuration]; rows that appear by
+/// scrolling or after any other change do not animate, and nothing
+/// animates while [MediaQuery.disableAnimationsOf] is true.
+///
+/// ## Semantics
+///
+/// Each row is one semantics node labeled with [TreeRow.label], with the
+/// selected state, the expanded state of expandable rows, the checked or
+/// mixed state when [checkboxMode] shows checkboxes, a tap action (a plain
+/// click), a long-press action (the secondary tap) when [onRowSecondaryTap]
+/// is set, and a hint with the row's level from [levelSemanticsHint]. A
+/// custom [rowBuilder] should not repeat the label in its own semantics;
+/// wrap such text in [ExcludeSemantics].
+class SliverDirectoryTree<T> extends StatefulWidget {
+  /// Creates the sliver of [controller]'s rows.
+  const SliverDirectoryTree({
+    super.key,
+    required this.controller,
+    this.rowBuilder,
+    this.rowDecorator,
+    this.checkboxMode = DirectoryTreeCheckboxMode.none,
+    this.expandOnTap = true,
+    this.selectOnTap = true,
+    this.onRowTap,
+    this.onActivate,
+    this.onRowSecondaryTap,
+    this.secondaryTapOnLongPress = true,
+    this.levelSemanticsHint,
+  });
+
+  /// The controller whose [DirectoryTreeController.rows] this sliver shows.
+  ///
+  /// The sliver listens to it and attaches itself as a
+  /// [DirectoryTreeViewport] while it is mounted; replacing the controller
+  /// moves both to the new one.
+  final DirectoryTreeController<T> controller;
+
+  /// Builds the widget of one row; null draws a [DirectoryTreeRow].
+  ///
+  /// It runs only for rows whose [DirectoryTreeRowDetails] changed, and the
+  /// result must fit [DirectoryTreeThemeData.rowExtent]. The sliver adds
+  /// the click, hover, and semantics handling around it.
+  final DirectoryTreeRowBuilder<T>? rowBuilder;
+
+  /// Wraps each built row, after the sliver added its click and hover
+  /// handling; null wraps nothing.
+  ///
+  /// Drag and drop installs one; see [DirectoryTreeRowDecorator].
+  final DirectoryTreeRowDecorator<T>? rowDecorator;
+
+  /// Which checkbox each row shows; [DirectoryTreeCheckboxMode.none] by
+  /// default.
+  ///
+  /// It decides [DirectoryTreeRowDetails.checkState] and the semantics
+  /// checked state of each row.
+  final DirectoryTreeCheckboxMode checkboxMode;
+
+  /// Whether a plain primary click on a directory row expands or collapses
+  /// it; true by default.
+  ///
+  /// Clicks with Shift, Command, or Control never toggle. When false, a
+  /// double-click still toggles a directory once.
+  final bool expandOnTap;
+
+  /// Whether clicks change the selection; true by default.
+  ///
+  /// When false, primary and secondary clicks only focus the row (and
+  /// [expandOnTap] still applies), which suits views where the checkboxes
+  /// or the app decide what is selected.
+  final bool selectOnTap;
+
+  /// Called after the built-in handling of every primary click on a row
+  /// (including each click of a double-click), with the row as it is after
+  /// that handling.
+  final ValueChanged<TreeRow<T>>? onRowTap;
+
+  /// Called when a row is activated by a double-click, after the click's
+  /// own handling, for files and directories alike.
+  ///
+  /// Keyboard activation (Enter) is handled by the tree's keyboard widget.
+  final ValueChanged<TreeRow<T>>? onActivate;
+
+  /// Called after a secondary click, or a touch long-press while
+  /// [secondaryTapOnLongPress] is true, has selected (or focused) the row;
+  /// receives the row and the pointer's global position.
+  final void Function(TreeRow<T> row, Offset globalPosition)? onRowSecondaryTap;
+
+  /// Whether a touch long-press counts as a secondary tap; true by default.
+  ///
+  /// Set it to false when touch long-presses start drags instead, as drag
+  /// and drop does. Mouse and stylus long-presses never count.
+  final bool secondaryTapOnLongPress;
+
+  /// Builds the semantics hint of a row from its level, which is
+  /// [TreeRow.depth] plus 1.
+  ///
+  /// Null uses the English `Level 2`; pass a function to localize it.
+  final String Function(int level)? levelSemanticsHint;
+
+  @override
+  State<SliverDirectoryTree<T>> createState() => _SliverDirectoryTreeState<T>();
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties
+      ..add(
+        DiagnosticsProperty<DirectoryTreeController<T>>(
+          'controller',
+          controller,
+        ),
+      )
+      ..add(
+        EnumProperty<DirectoryTreeCheckboxMode>(
+          'checkboxMode',
+          checkboxMode,
+          defaultValue: DirectoryTreeCheckboxMode.none,
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'expandOnTap',
+          value: expandOnTap,
+          ifFalse: 'no expand on tap',
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'selectOnTap',
+          value: selectOnTap,
+          ifFalse: 'no select on tap',
+        ),
+      )
+      ..add(
+        FlagProperty(
+          'secondaryTapOnLongPress',
+          value: secondaryTapOnLongPress,
+          ifFalse: 'no secondary tap on long press',
+        ),
+      )
+      ..add(
+        ObjectFlagProperty<DirectoryTreeRowBuilder<T>>.has(
+          'rowBuilder',
+          rowBuilder,
+        ),
+      )
+      ..add(
+        ObjectFlagProperty<DirectoryTreeRowDecorator<T>>.has(
+          'rowDecorator',
+          rowDecorator,
+        ),
+      )
+      ..add(
+        ObjectFlagProperty<ValueChanged<TreeRow<T>>>.has('onRowTap', onRowTap),
+      )
+      ..add(
+        ObjectFlagProperty<ValueChanged<TreeRow<T>>>.has(
+          'onActivate',
+          onActivate,
+        ),
+      )
+      ..add(
+        ObjectFlagProperty<void Function(TreeRow<T>, Offset)>.has(
+          'onRowSecondaryTap',
+          onRowSecondaryTap,
+        ),
+      )
+      ..add(
+        ObjectFlagProperty<String Function(int)>.has(
+          'levelSemanticsHint',
+          levelSemanticsHint,
+        ),
+      );
+  }
+}
+
+/// What one build of the sliver shows. The item builder of that build reads
+/// it, so rows created later during layout stay consistent with the item
+/// count of the same build.
+final class _Snapshot<T> {
+  _Snapshot({
+    required this.rows,
+    required this.focusedId,
+    required this.hasFocus,
+    required this.query,
+    required this.checkboxMode,
+  });
+
+  final TreeRows<T> rows;
+  final NodeId? focusedId;
+  final bool hasFocus;
+  final TreeQuery? query;
+  final DirectoryTreeCheckboxMode checkboxMode;
+}
+
+/// A row widget and the details it was built for. [query] is the parsed
+/// query its match ranges were computed with.
+final class _CachedRow<T> {
+  _CachedRow(this.details, this.widget, this.query);
+
+  final DirectoryTreeRowDetails<T> details;
+  final _RowItem<T> widget;
+  final TreeQuery? query;
+}
+
+/// The rows a splice inserted: indexes [start] (inclusive) to [end]
+/// (exclusive) of [rows].
+final class _InsertedBlock {
+  _InsertedBlock(this.rows, this.start, this.end);
+
+  final TreeRows<Object?> rows;
+  final int start;
+  final int end;
+}
+
+class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
+    implements DirectoryTreeViewport {
+  // The rows of the controller's latest notification.
+  late TreeRows<T> _rows;
+
+  // What the latest build shows, and the base of scroll anchoring: the
+  // render sliver was last laid out with these rows.
+  _Snapshot<T>? _snapshot;
+
+  // The scroll correction applied since the latest build (see
+  // _anchorScrollOffset).
+  double _appliedAnchorCorrection = 0;
+
+  // After showRow jumped, the row it showed is the anchor until the next
+  // build (the latest layout no longer describes the screen): its id, its
+  // index in the rows of that moment, and the correction applied since.
+  // While showRow animates, nothing is anchored until the next build.
+  ({NodeId id, int index, double applied})? _shownAnchor;
+  bool _anchorSuspended = false;
+
+  _InsertedBlock? _insertedBlock;
+
+  final Map<NodeId, _CachedRow<T>> _cache = <NodeId, _CachedRow<T>>{};
+  final Map<NodeId, _RowItemState<T>> _items = <NodeId, _RowItemState<T>>{};
+
+  ScrollableState? _scrollable;
+  Duration _insertDuration = Duration.zero;
+  Curve _insertCurve = Curves.linear;
+
+  // Double-click tracking: the row of the latest primary click while the
+  // double-click window is open, whether that click toggled the row's
+  // directory, and the row a press armed as the second click.
+  NodeId? _lastClickId;
+  bool _lastClickToggled = false;
+  Timer? _clickWindow;
+  NodeId? _armedId;
+
+  DirectoryTreeController<T> get _controller => widget.controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _rows = _controller.rows;
+    _controller
+      ..addListener(_handleControllerChanged)
+      ..attachViewport(this);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scrollable = Scrollable.maybeOf(context);
+  }
+
+  @override
+  void didUpdateWidget(SliverDirectoryTree<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.controller, widget.controller)) {
+      oldWidget.controller
+        ..removeListener(_handleControllerChanged)
+        ..detachViewport(this);
+      widget.controller
+        ..addListener(_handleControllerChanged)
+        ..attachViewport(this);
+      _resetClicks();
+      _cache.clear();
+      _adoptRows(widget.controller.rows, splice: null);
+      return;
+    }
+    // The row widgets read these when they build, so cached widgets would
+    // keep the old ones.
+    if (oldWidget.rowBuilder != widget.rowBuilder ||
+        oldWidget.rowDecorator != widget.rowDecorator ||
+        oldWidget.secondaryTapOnLongPress != widget.secondaryTapOnLongPress ||
+        (oldWidget.onRowSecondaryTap == null) !=
+            (widget.onRowSecondaryTap == null) ||
+        oldWidget.levelSemanticsHint != widget.levelSemanticsHint) {
+      _cache.clear();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_handleControllerChanged)
+      ..detachViewport(this);
+    _clickWindow?.cancel();
+    super.dispose();
+  }
+
+  void _handleControllerChanged() {
+    final rows = _controller.rows;
+    if (!identical(rows, _rows)) {
+      final change = _controller.lastRowsChange;
+      // A splice is only trusted when it starts from the rows this sliver
+      // has; otherwise some change in between was missed.
+      final splice = !change.isReset && identical(change.previous, _rows)
+          ? change
+          : null;
+      _adoptRows(rows, splice: splice);
+    }
+    setState(() {
+      // The details of the visible rows are recomputed in build.
+    });
+  }
+
+  /// Makes [rows] the rows to show: records the block [splice] inserted
+  /// for the insert animation, keeps the first visible row in place, and
+  /// schedules a layout.
+  void _adoptRows(TreeRows<T> rows, {required TreeRowsChange? splice}) {
+    if (splice != null && splice.inserted > 0) {
+      final block = _InsertedBlock(
+        rows,
+        splice.index,
+        splice.index + splice.inserted,
+      );
+      _insertedBlock = block;
+      // Only rows built for the frame right after the splice animate; rows
+      // built later appear because of scrolling.
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (identical(_insertedBlock, block)) _insertedBlock = null;
+      });
+    } else {
+      _insertedBlock = null;
+    }
+    _rows = rows;
+    _anchorScrollOffset();
+    // The visible children may all stay the same while the row count
+    // changes, which alone would not lay the sliver out again.
+    _renderSliver()?.markNeedsLayout();
+  }
+
+  // ---------------------------------------------------------------------
+  // Building
+  // ---------------------------------------------------------------------
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = DirectoryTreeTheme.of(context);
+    final disableAnimations =
+        MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _insertDuration = disableAnimations
+        ? Duration.zero
+        : theme.animationDuration!;
+    _insertCurve = theme.animationCurve!;
+    final controller = _controller;
+    final snapshot = _Snapshot<T>(
+      rows: _rows,
+      focusedId: controller.focusedId,
+      hasFocus: Focus.maybeOf(context)?.hasFocus ?? false,
+      query: controller.parsedQuery,
+      checkboxMode: widget.checkboxMode,
+    );
+    _snapshot = snapshot;
+    _appliedAnchorCorrection = 0;
+    _shownAnchor = null;
+    _anchorSuspended = false;
+    return SliverFixedExtentList.builder(
+      itemExtent: theme.rowExtent!,
+      itemCount: snapshot.rows.length,
+      itemBuilder: (context, index) => _buildRow(snapshot, index),
+      findChildIndexCallback: (key) => _indexOfKey(snapshot.rows, key),
+      // Rows keep no state worth keeping off screen, and keep-alive would
+      // hold rows of huge trees in memory.
+      addAutomaticKeepAlives: false,
+    );
+  }
+
+  static int? _indexOfKey(TreeRows<Object?> rows, Key key) {
+    if (key is! ValueKey<NodeId>) return null;
+    final id = key.value;
+    final index = rows.indexOfNode(id);
+    // indexOfNode also finds a node inside a compacted row; only the row
+    // keyed by exactly this id moves there.
+    return index >= 0 && rows[index].id == id ? index : null;
+  }
+
+  Widget? _buildRow(_Snapshot<T> snapshot, int index) {
+    final rows = snapshot.rows;
+    if (index < 0 || index >= rows.length) return null;
+    final row = rows[index];
+    final id = row.id;
+    final controller = _controller;
+    final isSelected = controller.isSelected(id);
+    final cached = _cache[id];
+    // Match ranges only change with the row object or the query, and
+    // computing them reads the label, which the core derives on each read.
+    final matchRanges =
+        cached != null &&
+            identical(cached.details.row, row) &&
+            identical(cached.query, snapshot.query)
+        ? cached.details.matchRanges
+        : controller.matchRangesOf(row);
+    final details = DirectoryTreeRowDetails<T>(
+      controller: controller,
+      row: row,
+      index: index,
+      isSelected: isSelected,
+      isFocused: id == snapshot.focusedId,
+      hasFocus: snapshot.hasFocus,
+      isHovered: false,
+      checkboxMode: snapshot.checkboxMode,
+      checkState: switch (snapshot.checkboxMode) {
+        DirectoryTreeCheckboxMode.none => null,
+        DirectoryTreeCheckboxMode.checks => controller.checkStateOf(id),
+        DirectoryTreeCheckboxMode.selection =>
+          isSelected ? CheckState.checked : CheckState.unchecked,
+      },
+      loadStatus: controller.loadStatusOf(id),
+      isExpandable: controller.isExpandable(id),
+      matchRanges: matchRanges,
+    );
+    // The identical widget makes the framework skip the row entirely.
+    if (cached != null && cached.details == details) return cached.widget;
+    final item = _RowItem<T>(
+      key: ValueKey<NodeId>(id),
+      host: this,
+      details: details,
+    );
+    _cache[id] = _CachedRow<T>(details, item, snapshot.query);
+    return item;
+  }
+
+  /// Whether the row at [index] of the latest build was inserted by the
+  /// latest splice and should animate in.
+  bool _animatesIn(int index) {
+    final block = _insertedBlock;
+    if (block == null || _insertDuration == Duration.zero) return false;
+    final snapshot = _snapshot;
+    return snapshot != null &&
+        identical(block.rows, snapshot.rows) &&
+        index >= block.start &&
+        index < block.end;
+  }
+
+  String _levelHint(int level) =>
+      widget.levelSemanticsHint?.call(level) ?? 'Level $level';
+
+  void _registerItem(NodeId id, _RowItemState<T> item) => _items[id] = item;
+
+  void _unregisterItem(NodeId id, _RowItemState<T> item) {
+    if (identical(_items[id], item)) _items.remove(id);
+    // A row that left the screen is rebuilt from scratch when it comes
+    // back, so its cache entry only costs memory.
+    if (identical(_cache[id]?.widget, item.widget)) _cache.remove(id);
+  }
+
+  // ---------------------------------------------------------------------
+  // Clicks
+  // ---------------------------------------------------------------------
+
+  /// A pointer went down on the row [id]: a primary press there while the
+  /// double-click window of a click on the same row is open arms an
+  /// activation. Every press closes the window.
+  void _handlePointerDown(NodeId id, PointerDownEvent event) {
+    final open = _clickWindow?.isActive ?? false;
+    _armedId = open && _lastClickId == id && event.buttons == kPrimaryButton
+        ? id
+        : null;
+    _clickWindow?.cancel();
+    _clickWindow = null;
+  }
+
+  void _resetClicks() {
+    _clickWindow?.cancel();
+    _clickWindow = null;
+    _lastClickId = null;
+    _lastClickToggled = false;
+    _armedId = null;
+  }
+
+  void _handlePrimaryTap(
+    TreeRow<T> row,
+    TapUpDetails details,
+    BuildContext itemContext,
+  ) {
+    final id = row.id;
+    final activation = _armedId == id;
+    _armedId = null;
+    final keyboard = HardwareKeyboard.instance;
+    final platform = defaultTargetPlatform;
+    if (platform == TargetPlatform.macOS && keyboard.isControlPressed) {
+      // On macOS a Control-click is the secondary click of one-button
+      // mice and trackpads.
+      _handleSecondaryTap(row, details.globalPosition, itemContext);
+      return;
+    }
+    final commandKey =
+        platform == TargetPlatform.macOS || platform == TargetPlatform.iOS;
+    _click(
+      row,
+      itemContext,
+      extend: keyboard.isShiftPressed,
+      toggle: commandKey ? keyboard.isMetaPressed : keyboard.isControlPressed,
+      activation: activation,
+      opensDoubleClickWindow: true,
+    );
+  }
+
+  /// The built-in handling of a primary click on [row], then the
+  /// callbacks.
+  ///
+  /// With [activation] this is the second click of a double-click. With
+  /// [opensDoubleClickWindow] a following click on the same row within
+  /// [kDoubleTapTimeout] activates it.
+  void _click(
+    TreeRow<T> row,
+    BuildContext itemContext, {
+    required bool extend,
+    required bool toggle,
+    required bool activation,
+    required bool opensDoubleClickWindow,
+  }) {
+    final controller = _controller;
+    final id = row.id;
+    requestTreeFocus(itemContext);
+    if (widget.selectOnTap) {
+      if (extend) {
+        controller.extendSelection(id);
+      } else if (toggle) {
+        controller.toggleSelected(id);
+      } else {
+        controller.select(id);
+      }
+    } else {
+      controller.focus(id);
+    }
+    final isDirectory = row.node is DirectoryNode<T>;
+    final onRowTap = widget.onRowTap;
+    if (activation) {
+      // A directory toggles once per activation: the first click of this
+      // double-click may have done it already.
+      final toggled = _lastClickToggled;
+      _resetClicks();
+      if (isDirectory && !toggled) controller.toggleExpansion(id);
+      final onActivate = widget.onActivate;
+      onRowTap?.call(_currentRow(row));
+      onActivate?.call(_currentRow(row));
+      return;
+    }
+    final plain = !extend && !toggle;
+    final toggles = widget.expandOnTap && plain && isDirectory;
+    if (toggles) controller.toggleExpansion(id);
+    _resetClicks();
+    if (opensDoubleClickWindow) {
+      _lastClickId = id;
+      _lastClickToggled = toggles;
+      _clickWindow = Timer(kDoubleTapTimeout, _resetClicks);
+    }
+    onRowTap?.call(_currentRow(row));
+  }
+
+  void _handleSecondaryTap(
+    TreeRow<T> row,
+    Offset globalPosition,
+    BuildContext itemContext,
+  ) {
+    _resetClicks();
+    final controller = _controller;
+    final id = row.id;
+    requestTreeFocus(itemContext);
+    if (widget.selectOnTap && !controller.isSelected(id)) {
+      controller.select(id);
+    } else {
+      controller.focus(id);
+    }
+    widget.onRowSecondaryTap?.call(_currentRow(row), globalPosition);
+  }
+
+  /// The semantics tap action: a plain click that never activates.
+  void _handleSemanticTap(TreeRow<T> row, BuildContext itemContext) {
+    _resetClicks();
+    _click(
+      row,
+      itemContext,
+      extend: false,
+      toggle: false,
+      activation: false,
+      opensDoubleClickWindow: false,
+    );
+  }
+
+  /// The row of [row]'s node in the controller's current rows, which a
+  /// click may have just replaced (an expanded directory is a new row
+  /// object); [row] itself when it is gone.
+  TreeRow<T> _currentRow(TreeRow<T> row) {
+    final rows = _controller.rows;
+    final index = rows.indexOfNode(row.id);
+    if (index >= 0) {
+      final current = rows[index];
+      if (current.id == row.id) return current;
+    }
+    return row;
+  }
+
+  // ---------------------------------------------------------------------
+  // Scroll anchoring
+  // ---------------------------------------------------------------------
+
+  RenderSliverFixedExtentList? _renderSliver() {
+    if (!mounted) return null;
+    final render = context.findRenderObject();
+    return render is RenderSliverFixedExtentList ? render : null;
+  }
+
+  ScrollPosition? get _position {
+    final scrollable = _scrollable;
+    if (scrollable == null || !scrollable.mounted) return null;
+    return scrollable.position;
+  }
+
+  /// Keeps the first visible row where it is on screen after the rows
+  /// changed, by correcting the scroll offset before the next layout.
+  ///
+  /// The correction is computed against the rows of the latest build, which
+  /// are the rows the render sliver was last laid out with, and the part
+  /// already applied since then is subtracted, so several changes before
+  /// one frame add up to the right total.
+  void _anchorScrollOffset() {
+    final base = _snapshot?.rows;
+    final render = _renderSliver();
+    final position = _position;
+    if (_anchorSuspended ||
+        base == null ||
+        render == null ||
+        position == null ||
+        !_hasLayout(render) ||
+        !position.hasPixels ||
+        !position.hasContentDimensions) {
+      return;
+    }
+    final extent = render.itemExtent;
+    final shown = _shownAnchor;
+    final double desired;
+    if (shown != null) {
+      final index = _rows.indexOfNode(shown.id);
+      if (index < 0) return;
+      final offset = (index - shown.index) * extent;
+      desired = render.constraints.growthDirection == GrowthDirection.reverse
+          ? -offset
+          : offset;
+    } else {
+      desired = _anchorCorrection(base, _rows, render.constraints, extent);
+    }
+    final applied = shown?.applied ?? _appliedAnchorCorrection;
+    final delta = desired - applied;
+    if (delta == 0) return;
+    // The scroll physics keep a corrected offset as it is, so it must land
+    // inside the scroll range of the new rows here.
+    final range = _predictedScrollRange(
+      render,
+      position,
+      _rows.length * extent - render.geometry!.scrollExtent,
+    );
+    final pixels = position.pixels;
+    final target = clampDouble(pixels + delta, range.min, range.max);
+    final correction = target - pixels;
+    if (correction != 0) position.correctBy(correction);
+    if (shown != null) {
+      _shownAnchor = (
+        id: shown.id,
+        index: shown.index,
+        applied: shown.applied + correction,
+      );
+    } else {
+      _appliedAnchorCorrection += correction;
+    }
+  }
+
+  /// The change of the scroll offset that keeps the first visible row of
+  /// [base] at its place in [rows], for a sliver laid out with
+  /// [constraints]; 0 when nothing needs to move.
+  static double _anchorCorrection(
+    TreeRows<Object?> base,
+    TreeRows<Object?> rows,
+    SliverConstraints constraints,
+    double extent,
+  ) {
+    if (identical(base, rows) || extent <= 0) return 0;
+    final scrollOffset = constraints.scrollOffset;
+    // The first pixel of the sliver that is not under a pinned header.
+    final leading = scrollOffset + math.max(0.0, constraints.overlap);
+    // The start of the tree is on screen: rows flow from there.
+    if (leading <= 0) return 0;
+    final oldCount = base.length;
+    double offset = 0;
+    if (leading >= oldCount * extent) {
+      // The tree is scrolled past: keep what follows it in place.
+      offset = (rows.length - oldCount) * extent;
+    } else {
+      final first = leading ~/ extent;
+      final end = math.min(
+        oldCount,
+        ((scrollOffset + constraints.remainingPaintExtent) / extent).ceil(),
+      );
+      // The first visible row that still has a row keeps its place.
+      for (var i = first; i < end; i++) {
+        final index = rows.indexOfNode(base[i].id);
+        if (index >= 0) {
+          offset = (index - i) * extent;
+          break;
+        }
+      }
+    }
+    // Slivers that grow backwards (before a scroll view's center) move the
+    // other way when the scroll offset grows.
+    return constraints.growthDirection == GrowthDirection.reverse
+        ? -offset
+        : offset;
+  }
+
+  /// Whether [render] and every sliver around it have been laid out, so
+  /// their geometry describes the screen.
+  static bool _hasLayout(RenderSliver render) {
+    if (!render.attached || render.geometry == null) return false;
+    RenderObject? node = render.parent;
+    while (node is RenderSliver) {
+      if (node.geometry == null) return false;
+      node = node.parent;
+    }
+    if (node is RenderViewport) {
+      for (
+        var child = node.firstChild;
+        child != null;
+        child = node.childAfter(child)
+      ) {
+        if (child.geometry == null) return false;
+      }
+      return true;
+    }
+    if (node is RenderShrinkWrappingViewport) {
+      for (
+        var child = node.firstChild;
+        child != null;
+        child = node.childAfter(child)
+      ) {
+        if (child.geometry == null) return false;
+      }
+      return true;
+    }
+    return node is RenderAbstractViewport;
+  }
+
+  /// The scroll range the viewport will report once the tree's scroll
+  /// extent changed by [delta], from the extents of its latest layout.
+  static ({double min, double max}) _predictedScrollRange(
+    RenderSliver render,
+    ScrollPosition position,
+    double delta,
+  ) {
+    final current = (
+      min: position.minScrollExtent,
+      max: position.maxScrollExtent,
+    );
+    if (delta == 0) return current;
+    final constraints = render.constraints;
+    final mainAxisExtent = constraints.viewportMainAxisExtent;
+    final backwards = constraints.growthDirection == GrowthDirection.reverse;
+    final viewport = RenderAbstractViewport.maybeOf(render);
+    if (viewport is RenderViewport) {
+      var forward = 0.0;
+      var reverse = 0.0;
+      for (
+        var child = viewport.firstChild;
+        child != null;
+        child = viewport.childAfter(child)
+      ) {
+        final extent = child.geometry!.scrollExtent;
+        if (child.constraints.growthDirection == GrowthDirection.reverse) {
+          reverse += extent;
+        } else {
+          forward += extent;
+        }
+      }
+      if (backwards) {
+        reverse += delta;
+      } else {
+        forward += delta;
+      }
+      final anchor = viewport.anchor;
+      return (
+        min: math.min(0.0, -reverse + mainAxisExtent * anchor),
+        max: math.max(0.0, forward - mainAxisExtent * (1.0 - anchor)),
+      );
+    }
+    if (viewport is RenderShrinkWrappingViewport) {
+      var total = delta;
+      for (
+        var child = viewport.firstChild;
+        child != null;
+        child = viewport.childAfter(child)
+      ) {
+        total += child.geometry!.scrollExtent;
+      }
+      return (min: 0.0, max: math.max(0.0, total - mainAxisExtent));
+    }
+    // An unknown viewport: the old range, widened by any growth.
+    return (
+      min: backwards ? current.min - math.max(0.0, delta) : current.min,
+      max: backwards ? current.max : current.max + math.max(0.0, delta),
+    );
+  }
+
+  // ---------------------------------------------------------------------
+  // DirectoryTreeViewport
+  // ---------------------------------------------------------------------
+
+  @override
+  int get pageRowCount {
+    final render = _renderSliver();
+    final position = _position;
+    if (render == null || position == null || !position.hasViewportDimension) {
+      return 1;
+    }
+    final extent = render.itemExtent;
+    if (extent <= 0) return 1;
+    return math.max(1, (position.viewportDimension / extent).floor());
+  }
+
+  @override
+  Future<void> showRow(
+    int index, {
+    Duration duration = Duration.zero,
+    Curve curve = Curves.easeOutCubic,
+    double? alignment,
+  }) {
+    final rows = _controller.rows;
+    if (!mounted || index < 0 || index >= rows.length) {
+      return Future<void>.value();
+    }
+    final render = _renderSliver();
+    final position = _position;
+    if (render == null ||
+        position == null ||
+        !_hasLayout(render) ||
+        !position.hasPixels ||
+        !position.hasContentDimensions) {
+      // Nothing is on screen yet: scroll once the first layout is done.
+      return _showRowAfterLayout(
+        rows[index].id,
+        duration: duration,
+        curve: curve,
+        alignment: alignment,
+      );
+    }
+    final viewport = RenderAbstractViewport.maybeOf(render);
+    if (viewport == null) return Future<void>.value();
+    final extent = render.itemExtent;
+    // The rows may have changed since the latest layout (the controller
+    // notifies before it scrolls), so the row's place comes from its index
+    // and the fixed extent, never from built children.
+    final rect = _rowRect(render, index, extent);
+    final pixels = position.pixels;
+    final double target;
+    if (alignment == null) {
+      final leading = viewport.getOffsetToReveal(render, 0, rect: rect);
+      final trailing = viewport.getOffsetToReveal(render, 1, rect: rect);
+      final revealed = RevealedOffset.clampOffset(
+        leadingEdgeOffset: leading,
+        trailingEdgeOffset: trailing,
+        currentOffset: pixels,
+      );
+      if (revealed == null) return Future<void>.value();
+      target = revealed.offset;
+    } else {
+      target = viewport.getOffsetToReveal(render, alignment, rect: rect).offset;
+    }
+    final range = _predictedScrollRange(
+      render,
+      position,
+      rows.length * extent - render.geometry!.scrollExtent,
+    );
+    if (!target.isFinite) return Future<void>.value();
+    final clamped = clampDouble(target, range.min, range.max);
+    if ((clamped - pixels).abs() < precisionErrorTolerance) {
+      return Future<void>.value();
+    }
+    if (duration == Duration.zero) {
+      _shownAnchor = (id: rows[index].id, index: index, applied: 0);
+      position.jumpTo(clamped);
+      return Future<void>.value();
+    }
+    _anchorSuspended = true;
+    return position.animateTo(clamped, duration: duration, curve: curve);
+  }
+
+  /// The bounds of the row at [index] in the coordinates
+  /// [RenderAbstractViewport.getOffsetToReveal] expects for a sliver
+  /// target.
+  static Rect _rowRect(RenderSliver render, int index, double extent) {
+    final constraints = render.constraints;
+    final start = index * extent;
+    final reversed = axisDirectionIsReversed(
+      applyGrowthDirectionToAxisDirection(
+        constraints.axisDirection,
+        constraints.growthDirection,
+      ),
+    );
+    // For reversed axes the viewport measures from the end of the sliver's
+    // latest scroll extent; placing the rect from that same value keeps the
+    // result exact even when the rows changed since.
+    final mainStart = reversed
+        ? render.geometry!.scrollExtent - start - extent
+        : start;
+    final cross = constraints.crossAxisExtent;
+    return switch (constraints.axis) {
+      Axis.vertical => Rect.fromLTWH(0, mainStart, cross, extent),
+      Axis.horizontal => Rect.fromLTWH(mainStart, 0, extent, cross),
+    };
+  }
+
+  /// Shows the row of [id] once a frame has laid the sliver out, trying for
+  /// at most [frames] frames; the row index is looked up again then, since
+  /// the rows may have changed.
+  Future<void> _showRowAfterLayout(
+    NodeId id, {
+    required Duration duration,
+    required Curve curve,
+    required double? alignment,
+    int frames = 3,
+  }) {
+    final completer = Completer<void>();
+    SchedulerBinding.instance
+      ..addPostFrameCallback((_) {
+        final index = mounted ? _controller.rows.indexOfNode(id) : -1;
+        if (index < 0) {
+          completer.complete();
+          return;
+        }
+        final render = _renderSliver();
+        final position = _position;
+        final laidOut =
+            render != null &&
+            position != null &&
+            _hasLayout(render) &&
+            position.hasPixels &&
+            position.hasContentDimensions;
+        final Future<void> next;
+        if (laidOut) {
+          next = showRow(
+            index,
+            duration: duration,
+            curve: curve,
+            alignment: alignment,
+          );
+        } else if (frames > 1) {
+          next = _showRowAfterLayout(
+            id,
+            duration: duration,
+            curve: curve,
+            alignment: alignment,
+            frames: frames - 1,
+          );
+        } else {
+          next = Future<void>.value();
+        }
+        completer.complete(next);
+      })
+      ..ensureVisualUpdate();
+    return completer.future;
+  }
+
+  @override
+  Rect? globalRowRect(int index) {
+    final rows = _controller.rows;
+    if (!mounted || index < 0 || index >= rows.length) return null;
+    final item = _items[rows[index].id];
+    if (item == null || !item.mounted) return null;
+    final box = item.context.findRenderObject();
+    if (box is! RenderBox || !box.attached || !box.hasSize) return null;
+    return MatrixUtils.transformRect(
+      box.getTransformTo(null),
+      Offset.zero & box.size,
+    );
+  }
+}
+
+/// One row: the built row widget with click, hover, and semantics handling.
+class _RowItem<T> extends StatefulWidget {
+  const _RowItem({super.key, required this.host, required this.details});
+
+  final _SliverDirectoryTreeState<T> host;
+  final DirectoryTreeRowDetails<T> details;
+
+  @override
+  State<_RowItem<T>> createState() => _RowItemState<T>();
+}
+
+class _RowItemState<T> extends State<_RowItem<T>> {
+  bool _hovered = false;
+
+  // Decided once: an element that animated in keeps its transition so the
+  // row below it is never rebuilt from scratch.
+  late final bool _animatesIn;
+
+  _SliverDirectoryTreeState<T> get _host => widget.host;
+
+  @override
+  void initState() {
+    super.initState();
+    _animatesIn = _host._animatesIn(widget.details.index);
+    _host._registerItem(widget.details.row.id, this);
+  }
+
+  @override
+  void dispose() {
+    _host._unregisterItem(widget.details.row.id, this);
+    super.dispose();
+  }
+
+  void _handleEnter(PointerEnterEvent event) {
+    if (event.kind != PointerDeviceKind.mouse || _hovered) return;
+    setState(() => _hovered = true);
+  }
+
+  void _handleExit(PointerExitEvent event) {
+    if (!_hovered) return;
+    setState(() => _hovered = false);
+  }
+
+  void _handlePointerDown(PointerDownEvent event) =>
+      _host._handlePointerDown(widget.details.row.id, event);
+
+  void _handleTapUp(TapUpDetails details) =>
+      _host._handlePrimaryTap(widget.details.row, details, context);
+
+  void _handleSecondaryTapUp(TapUpDetails details) => _host._handleSecondaryTap(
+    widget.details.row,
+    details.globalPosition,
+    context,
+  );
+
+  void _handleLongPressStart(LongPressStartDetails details) => _host
+      ._handleSecondaryTap(widget.details.row, details.globalPosition, context);
+
+  void _handleSemanticTap() =>
+      _host._handleSemanticTap(widget.details.row, context);
+
+  void _handleSemanticLongPress() {
+    final box = context.findRenderObject();
+    final position = box is RenderBox && box.hasSize
+        ? box.localToGlobal(box.size.center(Offset.zero))
+        : Offset.zero;
+    _host._handleSecondaryTap(widget.details.row, position, context);
+  }
+
+  Map<Type, GestureRecognizerFactory> _gestures({required bool longPress}) {
+    return <Type, GestureRecognizerFactory>{
+      TapGestureRecognizer:
+          GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+            () => TapGestureRecognizer(debugOwner: this),
+            (recognizer) => recognizer
+              ..onTapUp = _handleTapUp
+              ..onSecondaryTapUp = _handleSecondaryTapUp,
+          ),
+      if (longPress)
+        LongPressGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+              () => LongPressGestureRecognizer(
+                debugOwner: this,
+                supportedDevices: const <PointerDeviceKind>{
+                  PointerDeviceKind.touch,
+                },
+              ),
+              (recognizer) =>
+                  recognizer.onLongPressStart = _handleLongPressStart,
+            ),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final config = _host.widget;
+    var details = widget.details;
+    if (_hovered) details = details.copyWith(isHovered: true);
+    final row = details.row;
+    final checkState = details.checkState;
+
+    Widget child = RowSemanticsScope(
+      child:
+          config.rowBuilder?.call(context, details) ??
+          DirectoryTreeRow<T>(details: details),
+    );
+    child = MouseRegion(
+      onEnter: _handleEnter,
+      onExit: _handleExit,
+      child: Listener(
+        onPointerDown: _handlePointerDown,
+        child: RawGestureDetector(
+          behavior: HitTestBehavior.opaque,
+          gestures: _gestures(longPress: config.secondaryTapOnLongPress),
+          excludeFromSemantics: true,
+          child: child,
+        ),
+      ),
+    );
+    final decorator = config.rowDecorator;
+    if (decorator != null) child = decorator(context, details, child);
+    child = Semantics(
+      container: true,
+      label: row.label,
+      hint: _host._levelHint(row.depth + 1),
+      selected: details.isSelected,
+      expanded: details.isExpandable ? row.isExpanded : null,
+      checked: checkState == null ? null : checkState == CheckState.checked,
+      mixed: checkState == null ? null : checkState == CheckState.partial,
+      onTap: _handleSemanticTap,
+      onLongPress: config.onRowSecondaryTap == null
+          ? null
+          : _handleSemanticLongPress,
+      child: child,
+    );
+    if (_animatesIn) {
+      child = _InsertTransition(
+        duration: _host._insertDuration,
+        curve: _host._insertCurve,
+        child: child,
+      );
+    }
+    return child;
+  }
+}
+
+/// Fades and slides in a row that an expansion or a lazy load inserted.
+class _InsertTransition extends StatefulWidget {
+  const _InsertTransition({
+    required this.duration,
+    required this.curve,
+    required this.child,
+  });
+
+  final Duration duration;
+  final Curve curve;
+  final Widget child;
+
+  @override
+  State<_InsertTransition> createState() => _InsertTransitionState();
+}
+
+class _InsertTransitionState extends State<_InsertTransition>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: widget.duration,
+  );
+  late final CurvedAnimation _progress = CurvedAnimation(
+    parent: _controller,
+    curve: widget.curve,
+  );
+  // Rows slide down from a quarter of their height above their place.
+  late final Animation<Offset> _offset = Tween<Offset>(
+    begin: const Offset(0, -0.25),
+    end: Offset.zero,
+  ).animate(_progress);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_controller.forward());
+  }
+
+  @override
+  void dispose() {
+    _progress.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _progress,
+      child: SlideTransition(position: _offset, child: widget.child),
+    );
+  }
+}
