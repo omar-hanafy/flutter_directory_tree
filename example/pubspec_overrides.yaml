@@ -1,0 +1,5 @@
+# Development only, removed in the release commit: resolves the unreleased
+# directory_tree 2.0.0 from its local checkout until it is on pub.dev.
+dependency_overrides:
+  directory_tree:
+    path: /Users/omarhanafy/Development/MyProjects/packages/directory_tree/directory_tree

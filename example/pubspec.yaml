@@ -12,7 +12,6 @@ dependencies:
     sdk: flutter
 
   cupertino_icons: ^1.0.8
-  directory_tree: ^1.0.0
   flutter_directory_tree:
     path: ../
   resizable_splitter: ^1.1.0

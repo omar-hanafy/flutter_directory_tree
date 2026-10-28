@@ -1,31 +1,30 @@
 name: flutter_directory_tree
-description: Desktop-friendly virtualized tree view with keyboard navigation, tri-state selection, and multi-root support.
-version: 1.0.0
+description: >-
+  Virtualized, keyboard-first directory tree view for Flutter: incremental
+  expand and collapse, multi-select, tri-state checkboxes, search, lazy loading.
+version: 2.0.0
 homepage: https://github.com/omar-hanafy/flutter_directory_tree
 repository: https://github.com/omar-hanafy/flutter_directory_tree
 issue_tracker: https://github.com/omar-hanafy/flutter_directory_tree/issues
-documentation: https://github.com/omar-hanafy/flutter_directory_tree#readme
+documentation: https://pub.dev/documentation/flutter_directory_tree/latest/
 
 topics:
   - filesystem
   - tree-view
-  - desktop
   - file-explorer
+  - desktop
+  - widget
 
 environment:
-  sdk: ^3.2.0
-  flutter: ">=3.22.0"
+  sdk: ^3.13.5
+  flutter: ">=3.47.7"
 
 dependencies:
-  directory_tree: ^1.0.0
+  directory_tree: ^2.0.0
   flutter:
     sdk: flutter
-  path: ^1.9.1
 
 dev_dependencies:
   flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-
-flutter:
-  uses-material-design: true
