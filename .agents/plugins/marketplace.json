@@ -1,0 +1,20 @@
+{
+  "name": "flutter-directory-tree-tools",
+  "interface": {
+    "displayName": "Flutter Directory Tree Tools"
+  },
+  "plugins": [
+    {
+      "name": "flutter-directory-tree",
+      "source": {
+        "source": "local",
+        "path": "./tooling/ai/flutter-directory-tree"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

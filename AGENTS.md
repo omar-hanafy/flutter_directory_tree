@@ -133,6 +133,55 @@ run; fix the code, or add an `// ignore:` whose comment says why.
    version value changed; the tag triggers trusted publishing to pub.dev
    (OIDC, no stored credentials). Never reuse or overwrite a tag.
 
+## AI coding assistants
+
+- Canonical tree: `tooling/ai/flutter-directory-tree/` with one shared
+  `skills/` set (`use-flutter-directory-tree`,
+  `migrate-flutter-directory-tree-v1-to-v2`), `assets/icon.png`, an
+  `evals/` suite for `claude plugin eval`, and three manifests:
+  `plugin.json` (Agent Plugins 1.0, read by Codex, Antigravity, and other
+  Agent Plugins clients), `.claude-plugin/plugin.json` (Claude Code), and
+  `.codex-plugin/plugin.json` (legacy, for older Codex releases). Catalogs:
+  `.claude-plugin/marketplace.json` and `.agents/plugins/marketplace.json`
+  at the repository root; Antigravity has no third-party marketplace and
+  installs the plugin folder by its GitHub `tree/main/...` URL.
+- All three manifests' `version` must equal the `pubspec.yaml` version,
+  and their shared metadata must match; the Codex interface appears in
+  `plugin.json` (`extensions["com.openai"].interface`) and in the legacy
+  manifest, identically. `tool/validate_agent_plugin.dart` enforces this,
+  plus the icon, the skill frontmatter and size limits, the eval layout,
+  the install commands in README.md and the plugin README, and the
+  `.pubignore` exclusions.
+- Skill facts must match the source. `test/agent_skill_claims_test.dart`
+  compiles every 2.x Dart block of the skills (blocks that start with
+  `// flutter_directory_tree 1.x` are skipped), requires every API name a
+  skill mentions to have a compiled use in its `_names` map (removed 1.x
+  names go in `_v1Names`, words that are not API names in `_notApi`), and
+  asserts the behavior the skills describe. When a change in `lib/` makes a
+  skill wrong, fix the skill and the claims test in the same pull request.
+- `tool/verify_agent_hosts.dart` installs the plugin in throwaway Claude
+  Code, Codex, and Antigravity profiles (never the real ones) and requires
+  the pubspec version and byte-identical skills; `--github <ref>` installs
+  from GitHub the way users do. The Agent plugin workflow
+  (`.github/workflows/agent-plugin.yml`) runs it on plugin pull requests
+  and weekly with each host's current release; a weekly failure usually
+  means a host changed its plugin contract. The plugin README's "Keeping it
+  current" section is the refresh checklist.
+- Both tools import only `dart:` libraries, so they run with plain `dart`
+  and need no resolved dependencies:
+
+  ```bash
+  dart tool/validate_agent_plugin.dart
+  dart tool/verify_agent_hosts.dart --require claude,codex,agy  # needs the three CLIs
+  flutter test test/agent_skill_claims_test.dart
+  ```
+
+- A future breaking release ships a
+  `migrate-flutter-directory-tree-vX-to-vY` skill before it is tagged.
+- The plugin tree, `tool/`, and this file are excluded from the pub.dev
+  archive by `.pubignore`; the catalogs live in hidden directories, which
+  pub never archives.
+
 ## Files that are not published
 
 `.pubignore` keeps `tool/`, `benchmark/`, this file, `CLAUDE.md`, and
