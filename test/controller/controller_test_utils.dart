@@ -24,6 +24,20 @@ final class NotificationCounter {
   }
 }
 
+/// Records [DirectoryTreeController.lastRowsChange] at every notification,
+/// while its `previous` is still set: the controller clears it once
+/// listeners ran when the change replaced the tree.
+final class RowsChangeRecorder {
+  RowsChangeRecorder(this.controller) {
+    controller.addListener(_record);
+  }
+
+  final DirectoryTreeController<Object?> controller;
+  final List<TreeRowsChange> changes = <TreeRowsChange>[];
+
+  void _record() => changes.add(controller.lastRowsChange);
+}
+
 /// Runs [command] and returns how many notifications it sent.
 int notificationsOf(ChangeNotifier controller, void Function() command) {
   final counter = NotificationCounter(controller);

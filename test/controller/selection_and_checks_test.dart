@@ -1,4 +1,5 @@
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
+import 'package:flutter_directory_tree/src/controller/check_counts.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'controller_test_utils.dart';
@@ -301,6 +302,27 @@ void main() {
           );
         }
       }
+    });
+
+    test('single-mode clicks update the counts instead of recounting', () {
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        expansion: const ExpansionState.expanded(),
+        checks: const SelectionState.empty(mode: SelectionMode.single),
+      );
+      expect(controller.checkStateOf(repo), CheckState.unchecked);
+      final builds = CheckCounts.debugBuildCount;
+      controller.toggleChecked(aDart);
+      expect(controller.checkStateOf(aDart), CheckState.checked);
+      expect(controller.checkStateOf(src), CheckState.partial);
+      controller.toggleChecked(readme);
+      expect(controller.checkStateOf(aDart), CheckState.unchecked);
+      expect(controller.checkStateOf(src), CheckState.unchecked);
+      expect(controller.checkStateOf(readme), CheckState.checked);
+      expect(controller.checkStateOf(repo), CheckState.partial);
+      controller.setChecked(readme, checked: false);
+      expect(controller.checkStateOf(repo), CheckState.unchecked);
+      expect(CheckCounts.debugBuildCount, builds);
     });
 
     test('checkAll and uncheckAll', () {

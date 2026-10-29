@@ -186,6 +186,50 @@ final class _Run {
     );
     model = controller.expansion;
     counter = NotificationCounter(controller);
+    controller.addListener(() => seenChange = controller.lastRowsChange);
+  }
+
+  /// The [DirectoryTreeController.lastRowsChange] the latest notification
+  /// showed, while its `previous` was still set.
+  TreeRowsChange? seenChange;
+
+  /// Directories that were open below a reloaded directory, with whether
+  /// the requested state expanded them: they open again when a load brings
+  /// them back.
+  final Map<NodeId, bool> reopen = {};
+
+  void modelReload(_Snapshot before, NodeId id) {
+    final node = before.tree[id];
+    if (loader == null ||
+        node is! DirectoryNode<int> ||
+        before.statuses[id] == DirectoryLoadStatus.loading ||
+        (!node.hasChildren && node.isExplicit)) {
+      return;
+    }
+    final start = before.tree.indexOf(id);
+    final end = start + before.tree.subtreeSizeOf(id);
+    for (var i = start + 1; i < end; i++) {
+      final below = before.tree.nodes[i];
+      if (below is! DirectoryNode<int>) continue;
+      final requested = model.isExpanded(below.id);
+      if (requested || before.rows.expansion.isExpanded(below.id)) {
+        reopen[below.id] = requested;
+      }
+    }
+  }
+
+  void modelReopen(_Snapshot before, NodeId id) {
+    final tree = controller.tree;
+    if (identical(tree, before.tree) || !tree.contains(id)) return;
+    final start = tree.indexOf(id);
+    final end = start + tree.subtreeSizeOf(id);
+    for (var i = start + 1; i < end; i++) {
+      final below = tree.nodes[i].id;
+      if (reopen.remove(below) ?? false) {
+        model = model.expand(below);
+        _cover('reopened');
+      }
+    }
   }
 
   final int seed;
@@ -234,6 +278,18 @@ final class _Run {
   /// says: the row's directory for an id with a row; otherwise, with compact
   /// folders, the deepest directory of the chain [id] belongs to (whose
   /// state the chain's row reads), else the id itself.
+  /// Whether [id] shows as expanded, which a toggle flips: its row's state,
+  /// else the effective state of its chain's deepest directory (hidden
+  /// roots count as expanded).
+  bool shownExpanded(_Snapshot before, NodeId id) {
+    final row = before.rows.rowOf(id);
+    if (row != null) return row.isExpanded;
+    final node = before.tree[id];
+    if (node is! DirectoryNode<int>) return false;
+    if (!before.showRoots && node.isRoot) return true;
+    return before.rows.expansion.isExpanded(chainEndOf(before, node));
+  }
+
   void modelToggle(_Snapshot before, NodeId id, {required bool expand}) {
     final node = before.tree[id];
     if (node is! DirectoryNode<int>) return;
@@ -254,9 +310,77 @@ final class _Run {
     model = model.setExpanded(target, expanded: expand);
   }
 
+  /// The deepest directory of the compacted chain [directory] belongs to
+  /// in [before], walking down from it; itself without compact folders and
+  /// for hidden roots.
+  NodeId chainEndOf(_Snapshot before, DirectoryNode<int> directory) {
+    if (!before.compactFolders || (!before.showRoots && directory.isRoot)) {
+      return directory.id;
+    }
+    var current = directory;
+    while (current.children.length == 1) {
+      final child = before.tree[current.children.first];
+      if (child is! DirectoryNode<int>) break;
+      current = child;
+    }
+    return current.id;
+  }
+
+  /// The ancestors of [id] whose own state decides whether it shows: not
+  /// hidden roots, not directories that continue a compacted chain.
+  List<NodeId> decidingAncestors(_Snapshot before, NodeId id) => [
+    for (final ancestor in before.tree.ancestorsOf(id))
+      if (!(ancestor.isRoot && !before.showRoots) &&
+          !(before.compactFolders &&
+              ancestor is DirectoryNode<int> &&
+              ancestor.children.length == 1 &&
+              before.tree[ancestor.children.first] is DirectoryNode<int>))
+        ancestor.id,
+  ];
+
+  /// A reveal expands the deciding ancestors in the requested state, unless
+  /// no expansion can show the node (the core's reveal changes nothing).
   void modelReveal(_Snapshot before, NodeId id) {
     if (!before.tree.contains(id) || before.rows.indexOfNode(id) >= 0) return;
-    model = model.reveal(before.tree, id);
+    if (identical(before.rows.reveal(id), before.rows)) return;
+    model = model.expandAll(decidingAncestors(before, id));
+  }
+
+  /// Turning compaction off expands the members of the visible compacted
+  /// rows: in the requested state all of them without a filter, else only
+  /// those of rows whose deepest directory it expands.
+  void modelCompactionOff(_Snapshot before, {required bool wasFiltering}) {
+    for (final row in before.rows) {
+      final members = [
+        for (final node in row.chain)
+          if (node.id != row.id) node.id,
+      ];
+      if (members.isEmpty) continue;
+      if (!wasFiltering || model.isExpanded(row.id)) {
+        model = model.expandAll(members);
+      }
+    }
+  }
+
+  /// A load that leaves an expanded directory with one child directory
+  /// expands the deepest directory of the new chain.
+  void modelLoadedChain(_Snapshot before, NodeId id) {
+    final tree = controller.tree;
+    if (identical(tree, before.tree) || !before.compactFolders) return;
+    final directory = tree[id];
+    if (directory is! DirectoryNode<int>) return;
+    if (!before.showRoots && directory.isRoot) return;
+    if (!model.isExpanded(id)) return;
+    var current = directory;
+    while (current.children.length == 1) {
+      final child = tree[current.children.first];
+      if (child is! DirectoryNode<int>) break;
+      current = child;
+    }
+    if (!identical(current, directory)) {
+      model = model.expand(current.id);
+      _cover('loaded chain');
+    }
   }
 
   /// After a filter input changed: clearing the filter reveals the focused
@@ -271,7 +395,7 @@ final class _Run {
       showRoots: before.showRoots,
     );
     if (plain.indexOfNode(focused) < 0) {
-      model = model.reveal(before.tree, focused);
+      model = plain.reveal(focused).expansion;
     }
   }
 
@@ -281,9 +405,32 @@ final class _Run {
     }
   }
 
+  /// A new tree from the setter: the requested state is pruned and the
+  /// reopening ends.
+  void modelNewTree(_Snapshot before) {
+    modelTreeChange(before);
+    if (!identical(controller.tree, before.tree)) reopen.clear();
+  }
+
+  /// The children of directories at the moment they were reloaded, so a
+  /// load can bring them back (and reopen the open ones).
+  final Map<NodeId, List<TreeEntry<int>>> reloaded = {};
+
   List<TreeEntry<int>> entriesFor(DirectoryNode<Object?> directory) {
+    final previous = reloaded.remove(directory.id);
+    if (previous != null && random.nextBool()) return previous;
     final base = directory.path.toString();
     final separator = base.endsWith('/') ? '' : '/';
+    if (random.nextInt(6) == 0) {
+      // A single child directory: with compact folders the loaded
+      // directory then continues a chain.
+      return [
+        TreeEntry<int>.directory(
+          '$base$separator${_names[random.nextInt(_names.length)]}',
+          data: nextData++,
+        ),
+      ];
+    }
     final count = random.nextInt(4);
     return [
       for (var i = 0; i < count; i++)
@@ -314,6 +461,7 @@ final class _Run {
     final before = _Snapshot(controller);
     final wasFiltering = controller.isFiltering;
     counter.take();
+    seenChange = null;
     var filterCommand = false;
     final command = random.nextInt(40);
     switch (command) {
@@ -330,12 +478,7 @@ final class _Run {
       case 2:
         final id = pickId();
         log.add('toggleExpansion($id)');
-        final row = before.rows.rowOf(id);
-        modelToggle(
-          before,
-          id,
-          expand: !(row != null ? row.isExpanded : controller.isExpanded(id)),
-        );
+        modelToggle(before, id, expand: !shownExpanded(before, id));
         controller.toggleExpansion(id);
       case 3:
         log.add('expandAll');
@@ -391,9 +534,20 @@ final class _Run {
         controller.revealMatches = !controller.revealMatches;
       case 12:
         log.add('compactFolders = ${!controller.compactFolders}');
+        if (controller.compactFolders) {
+          modelCompactionOff(before, wasFiltering: wasFiltering);
+          _cover('compaction off');
+        }
         controller.compactFolders = !controller.compactFolders;
       case 13:
         log.add('showRoots = ${!controller.showRoots}');
+        if (!controller.showRoots) {
+          // Hidden roots counted as expanded, so showing them keeps them so.
+          model = model.expandAll([
+            for (final root in before.tree.rootNodes)
+              if (root is DirectoryNode<int>) root.id,
+          ]);
+        }
         controller.showRoots = !controller.showRoots;
       case 14:
         final tree = controller.tree;
@@ -409,7 +563,7 @@ final class _Run {
         });
         log.add('tree = edited (${next.length} nodes)');
         controller.tree = next;
-        modelTreeChange(before);
+        modelNewTree(before);
       case 15:
         final roll = random.nextInt(3);
         final current = controller.tree;
@@ -420,7 +574,7 @@ final class _Run {
             : _randomTree(random, policy);
         log.add('tree = ${['same', 'equal', 'new'][roll]}');
         controller.tree = next;
-        modelTreeChange(before);
+        modelNewTree(before);
       case 16:
         final id = pickId();
         final focus = random.nextBool();
@@ -523,6 +677,23 @@ final class _Run {
       case 32:
         final id = pickId();
         log.add('reloadChildren($id)');
+        final node = before.tree[id];
+        if (node is DirectoryNode<int> && node.hasChildren) {
+          reloaded[id] = [
+            for (final child in node.children)
+              if (before.tree[child] case final childNode?)
+                childNode is DirectoryNode<int>
+                    ? TreeEntry<int>.directory(
+                        childNode.path.toString(),
+                        data: nextData++,
+                      )
+                    : TreeEntry<int>.file(
+                        childNode.path.toString(),
+                        data: nextData++,
+                      ),
+          ];
+        }
+        modelReload(before, id);
         unawaited(controller.reloadChildren(id));
         modelTreeChange(before);
       case 33:
@@ -537,6 +708,8 @@ final class _Run {
         call.completer.complete(entries);
         await _flush();
         modelTreeChange(before);
+        modelReopen(before, call.directory.id);
+        modelLoadedChain(before, call.directory.id);
       case 34:
         final pending = loader?.pending ?? const [];
         if (pending.isEmpty) {
@@ -563,12 +736,7 @@ final class _Run {
             ? unknown
             : rows[random.nextInt(rows.length)].id;
         log.add('toggleExpansion(row $id)');
-        final row = before.rows.rowOf(id);
-        modelToggle(
-          before,
-          id,
-          expand: !(row != null ? row.isExpanded : controller.isExpanded(id)),
-        );
+        modelToggle(before, id, expand: !shownExpanded(before, id));
         controller.toggleExpansion(id);
     }
     await _flush();
@@ -689,11 +857,23 @@ final class _Run {
         reason: '$reason (change kept)',
       );
     } else {
-      final change = controller.lastRowsChange;
+      final change = seenChange!;
       expect(
         identical(change.previous, before.rows),
         isTrue,
         reason: '$reason (change.previous)',
+      );
+      // Once listeners ran, a replaced tree is released; the rest stays.
+      final kept = controller.lastRowsChange;
+      expect(
+        kept.previous,
+        identical(rows.tree, before.rows.tree) ? same(before.rows) : isNull,
+        reason: '$reason (previous after the listeners)',
+      );
+      expect(
+        (kept.isReset, kept.index, kept.removed, kept.inserted),
+        (change.isReset, change.index, change.removed, change.inserted),
+        reason: '$reason (change kept after the listeners)',
       );
       if (!change.isReset) {
         final oldIds = idsOf(before.rows);
@@ -858,6 +1038,7 @@ void main() {
       'loading',
       'failed',
       'checked',
+      'compaction off',
     ]) {
       expect(
         _coverage[situation] ?? 0,

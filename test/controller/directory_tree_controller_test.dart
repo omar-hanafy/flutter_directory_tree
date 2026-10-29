@@ -124,15 +124,32 @@ void main() {
         expansion: ExpansionState.withExpanded([repo]),
       );
       final rows = controller.rows;
+      final recorder = RowsChangeRecorder(controller);
       expect(
         notificationsOf(controller, () {
           controller.tree = sampleTree();
         }),
         1,
       );
-      expect(controller.lastRowsChange, TreeRowsChange.reset(previous: rows));
+      expect(recorder.changes, [TreeRowsChange.reset(previous: rows)]);
       expect(labelsOf(controller.rows), labelsOf(rows));
       expectConsistentRows(controller);
+    });
+
+    test('releases the replaced tree once listeners ran', () {
+      final controller = sampleController();
+      final recorder = RowsChangeRecorder(controller);
+      final before = controller.rows;
+      controller.tree = sampleTree();
+      expect(recorder.changes.single.previous, same(before));
+      expect(
+        controller.lastRowsChange,
+        const TreeRowsChange.reset(previous: null),
+      );
+      // A change that keeps the tree keeps its previous rows.
+      final rows = controller.rows;
+      controller.expand(repo);
+      expect(controller.lastRowsChange.previous, same(rows));
     });
 
     test('prunes selection, checks, and both expansion states', () {
@@ -753,7 +770,16 @@ void main() {
         controller.expansion,
         ExpansionState.withExpanded([repo, lib, src]),
       );
-      expect(controller.lastRowsChange, TreeRowsChange.reset(previous: before));
+      // The core's incremental reveal: the block after the opened root.
+      expect(
+        controller.lastRowsChange,
+        TreeRowsChange.splice(
+          previous: before,
+          index: 1,
+          removed: 0,
+          inserted: 7,
+        ),
+      );
       expect(viewport.shown.single.index, controller.rows.indexOfNode(bDart));
       expect(viewport.shown.single.alignment, isNull);
     });
@@ -844,12 +870,11 @@ void main() {
         }),
         0,
       );
+      final rows = controller.rows;
       expect(controller.reveal(mainTest, select: true), isFalse);
-      // The ancestors open in both states; the selection still applies.
-      expect(
-        controller.expansion,
-        ExpansionState.withExpanded([repo, testDir]),
-      );
+      // No expansion can show it, so none changes; the selection applies.
+      expect(controller.rows, same(rows));
+      expect(controller.expansion, const ExpansionState.collapsed());
       expect(controller.selection.selected, {mainTest});
       expect(controller.focusedId, isNull);
     });
@@ -1035,8 +1060,9 @@ void main() {
       controller.collapseAll();
       expect(labelsOf(controller.rows), ['lib', 'test', 'README.md']);
       expect(controller.focusedId, lib);
+      // The root counted as expanded while hidden, so it shows open.
       controller.showRoots = true;
-      expect(labelsOf(controller.rows), ['repo']);
+      expect(labelsOf(controller.rows), ['repo', 'lib', 'test', 'README.md']);
       expectConsistentRows(controller);
     });
   });
