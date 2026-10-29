@@ -112,6 +112,9 @@ class DirectoryTreeView<T> extends StatefulWidget {
     this.showScrollbar = true,
     this.semanticLabel,
     this.levelSemanticsHint,
+    this.activateSemanticsLabel = 'Open',
+    this.loadingSemanticsLabel = 'Loading',
+    this.loadFailedSemanticsLabel = 'Failed to load',
     this.emptyBuilder,
     this.selectionFollowsFocus = true,
   });
@@ -248,6 +251,21 @@ class DirectoryTreeView<T> extends StatefulWidget {
   /// Pass a function to localize it. See
   /// [SliverDirectoryTree.levelSemanticsHint].
   final String Function(int level)? levelSemanticsHint;
+
+  /// The label of the screen reader action that activates a row (runs
+  /// [onActivate]); `'Open'` by default. Pass a localized verb. See
+  /// [SliverDirectoryTree.activateSemanticsLabel].
+  final String activateSemanticsLabel;
+
+  /// What screen readers say for a folder whose children are loading;
+  /// `'Loading'` by default. See
+  /// [SliverDirectoryTree.loadingSemanticsLabel].
+  final String loadingSemanticsLabel;
+
+  /// What screen readers say for a folder whose children failed to load;
+  /// `'Failed to load'` by default. See
+  /// [SliverDirectoryTree.loadFailedSemanticsLabel].
+  final String loadFailedSemanticsLabel;
 
   /// Builds what the view shows while there are no rows: an empty tree, or
   /// a search with no matches.
@@ -496,6 +514,9 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
       // scope reports a long-press that never moved instead.
       secondaryTapOnLongPress: dragAndDrop == null,
       levelSemanticsHint: widget.levelSemanticsHint,
+      activateSemanticsLabel: widget.activateSemanticsLabel,
+      loadingSemanticsLabel: widget.loadingSemanticsLabel,
+      loadFailedSemanticsLabel: widget.loadFailedSemanticsLabel,
     );
     // Always padded, so that a padding change keeps the sliver's state.
     sliver = SliverPadding(

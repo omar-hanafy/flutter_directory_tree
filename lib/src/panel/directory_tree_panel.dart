@@ -68,6 +68,9 @@ class DirectoryTreePanel<T> extends StatefulWidget {
     this.showScrollbar = true,
     this.semanticLabel,
     this.levelSemanticsHint,
+    this.activateSemanticsLabel = 'Open',
+    this.loadingSemanticsLabel = 'Loading',
+    this.loadFailedSemanticsLabel = 'Failed to load',
     this.emptyBuilder,
     this.selectionFollowsFocus = true,
   });
@@ -180,6 +183,15 @@ class DirectoryTreePanel<T> extends StatefulWidget {
 
   /// See [DirectoryTreeView.levelSemanticsHint].
   final String Function(int level)? levelSemanticsHint;
+
+  /// See [DirectoryTreeView.activateSemanticsLabel].
+  final String activateSemanticsLabel;
+
+  /// See [DirectoryTreeView.loadingSemanticsLabel].
+  final String loadingSemanticsLabel;
+
+  /// See [DirectoryTreeView.loadFailedSemanticsLabel].
+  final String loadFailedSemanticsLabel;
 
   /// See [DirectoryTreeView.emptyBuilder].
   final WidgetBuilder? emptyBuilder;
@@ -314,6 +326,9 @@ class _DirectoryTreePanelState<T> extends State<DirectoryTreePanel<T>> {
             showScrollbar: widget.showScrollbar,
             semanticLabel: widget.semanticLabel,
             levelSemanticsHint: widget.levelSemanticsHint,
+            activateSemanticsLabel: widget.activateSemanticsLabel,
+            loadingSemanticsLabel: widget.loadingSemanticsLabel,
+            loadFailedSemanticsLabel: widget.loadFailedSemanticsLabel,
             emptyBuilder: widget.emptyBuilder,
             selectionFollowsFocus: widget.selectionFollowsFocus,
           ),

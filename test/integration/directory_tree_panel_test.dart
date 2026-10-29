@@ -176,6 +176,30 @@ void main() {
     expect(find.text('No files'), findsOneWidget);
   });
 
+  testWidgets('the semantics labels reach the sliver', (tester) async {
+    final controller = expandedController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      hostApp(
+        DirectoryTreePanel<int>(
+          controller: controller,
+          levelSemanticsHint: (level) => 'Ebene $level',
+          activateSemanticsLabel: 'Öffnen',
+          loadingSemanticsLabel: 'Wird geladen',
+          loadFailedSemanticsLabel: 'Laden fehlgeschlagen',
+        ),
+        height: 400,
+      ),
+    );
+    final sliver = tester.widget<SliverDirectoryTree<int>>(
+      find.byType(SliverDirectoryTree<int>),
+    );
+    expect(sliver.levelSemanticsHint!(2), 'Ebene 2');
+    expect(sliver.activateSemanticsLabel, 'Öffnen');
+    expect(sliver.loadingSemanticsLabel, 'Wird geladen');
+    expect(sliver.loadFailedSemanticsLabel, 'Laden fehlgeschlagen');
+  });
+
   testWidgets('the default toolbar takes localized labels', (tester) async {
     final controller = expandedController();
     addTearDown(controller.dispose);
