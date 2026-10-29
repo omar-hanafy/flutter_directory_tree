@@ -232,8 +232,9 @@ The controller keeps expansion, selection, checks, and focus by id, so
 `lib` stays selected, and the new file is unchecked, which makes `lib`
 partial. Ids that no longer exist are dropped, and the focus moves to the
 nearest surviving ancestor. On screen, the first visible row keeps its
-position, also during a fling or an animated `ensureVisible`, and when the
-row height changes with the text scale. An animation your app starts with
+position, also during a fling, the spring back from an overscroll, or an
+animated `ensureVisible`, and when the row height changes with the text
+scale. An animation your app starts with
 `ScrollController.animateTo` still ends at the offset it was given, so on
 its next frame the content moves by the change. The `SliverDirectoryTree`
 documentation lists the other cases where a change moves the content.
@@ -327,10 +328,14 @@ arrow. A load that throws marks the folder `DirectoryLoadStatus.failed`,
 calls `onLoadError`, and shows an error icon in place of the arrow.
 Clicking the icon, or opening the folder again, retries the load.
 
-`reloadChildren(id)` drops a folder's contents and loads them again, as a
-refresh button would; the folders that were open below it open again as
-their contents come back. Loads still running when the tree is replaced
-are discarded, and an open folder whose load was discarded loads again.
+`reloadChildren(id)` loads a folder's contents again, as a refresh button
+would. The folder keeps its contents until the new ones arrive, then they
+replace them in one change: expansion, selection, checks, and focus stay
+with every entry that still exists. With a loader that lists one level,
+the open folders below it are listed again in turn, and closed ones the
+next time they open. A failed reload keeps the contents, and opening the
+folder again retries. Loads still running when the tree is replaced are
+discarded, and an open folder whose load was discarded loads again.
 
 ### The local file system
 

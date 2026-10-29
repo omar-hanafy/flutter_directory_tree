@@ -193,45 +193,6 @@ final class _Run {
   /// showed, while its `previous` was still set.
   TreeRowsChange? seenChange;
 
-  /// Directories that were open below a reloaded directory, with whether
-  /// the requested state expanded them: they open again when a load brings
-  /// them back.
-  final Map<NodeId, bool> reopen = {};
-
-  void modelReload(_Snapshot before, NodeId id) {
-    final node = before.tree[id];
-    if (loader == null ||
-        node is! DirectoryNode<int> ||
-        before.statuses[id] == DirectoryLoadStatus.loading ||
-        (!node.hasChildren && node.isExplicit)) {
-      return;
-    }
-    final start = before.tree.indexOf(id);
-    final end = start + before.tree.subtreeSizeOf(id);
-    for (var i = start + 1; i < end; i++) {
-      final below = before.tree.nodes[i];
-      if (below is! DirectoryNode<int>) continue;
-      final requested = model.isExpanded(below.id);
-      if (requested || before.rows.expansion.isExpanded(below.id)) {
-        reopen[below.id] = requested;
-      }
-    }
-  }
-
-  void modelReopen(_Snapshot before, NodeId id) {
-    final tree = controller.tree;
-    if (identical(tree, before.tree) || !tree.contains(id)) return;
-    final start = tree.indexOf(id);
-    final end = start + tree.subtreeSizeOf(id);
-    for (var i = start + 1; i < end; i++) {
-      final below = tree.nodes[i].id;
-      if (reopen.remove(below) ?? false) {
-        model = model.expand(below);
-        _cover('reopened');
-      }
-    }
-  }
-
   final int seed;
   final Random random;
   late final PathPolicy policy;
@@ -362,14 +323,21 @@ final class _Run {
     }
   }
 
-  /// A load that leaves an expanded directory with one child directory
-  /// expands the deepest directory of the new chain.
+  /// A load that leaves an expanded directory with one child directory,
+  /// when it had not started a chain before, expands the deepest directory
+  /// of the new chain.
   void modelLoadedChain(_Snapshot before, NodeId id) {
     final tree = controller.tree;
     if (identical(tree, before.tree) || !before.compactFolders) return;
     final directory = tree[id];
     if (directory is! DirectoryNode<int>) return;
     if (!before.showRoots && directory.isRoot) return;
+    final old = before.tree[id];
+    if (old is DirectoryNode<int> &&
+        old.children.length == 1 &&
+        before.tree[old.children.first] is DirectoryNode<int>) {
+      return;
+    }
     if (!model.isExpanded(id)) return;
     var current = directory;
     while (current.children.length == 1) {
@@ -405,15 +373,11 @@ final class _Run {
     }
   }
 
-  /// A new tree from the setter: the requested state is pruned and the
-  /// reopening ends.
-  void modelNewTree(_Snapshot before) {
-    modelTreeChange(before);
-    if (!identical(controller.tree, before.tree)) reopen.clear();
-  }
+  /// A new tree from the setter: the requested state is pruned.
+  void modelNewTree(_Snapshot before) => modelTreeChange(before);
 
   /// The children of directories at the moment they were reloaded, so a
-  /// load can bring them back (and reopen the open ones).
+  /// load can bring them back (the open ones stay open).
   final Map<NodeId, List<TreeEntry<int>>> reloaded = {};
 
   List<TreeEntry<int>> entriesFor(DirectoryNode<Object?> directory) {
@@ -693,7 +657,6 @@ final class _Run {
                       ),
           ];
         }
-        modelReload(before, id);
         unawaited(controller.reloadChildren(id));
         modelTreeChange(before);
       case 33:
@@ -708,7 +671,6 @@ final class _Run {
         call.completer.complete(entries);
         await _flush();
         modelTreeChange(before);
-        modelReopen(before, call.directory.id);
         modelLoadedChain(before, call.directory.id);
       case 34:
         final pending = loader?.pending ?? const [];

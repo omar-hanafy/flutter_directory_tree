@@ -449,8 +449,9 @@ void main() {
       expect(controller.loadStatusOf(inner), DirectoryLoadStatus.failed);
       // Reload the parent, whose loader returns the inner contents too.
       final reload = controller.reloadChildren(lazy);
-      expect(controller.tree.contains(inner), isFalse);
+      expect(controller.tree.contains(inner), isTrue);
       expect(controller.loadErrorOf(inner), isNull);
+      expect(controller.loadStatusOf(inner), DirectoryLoadStatus.notLoaded);
       await settle();
       loader.complete(lazy, const [
         TreeEntry.directory('/r/lazy/inner'),
@@ -463,7 +464,7 @@ void main() {
   });
 
   group('reloadChildren', () {
-    test('removes the contents at once and loads them again', () async {
+    test('keeps the contents while it loads and then replaces them', () async {
       final loader = FakeLoader<String>();
       final tree = DirectoryTree<String>.build(const [
         TreeEntry.file('/r/dir/old.txt'),
@@ -472,11 +473,12 @@ void main() {
       ]);
       const dir = NodeId('/r/dir');
       const sub = NodeId('/r/dir/sub');
+      const deep = NodeId('/r/dir/sub/deep.txt');
       final controller = lazyController(
         loader,
         tree: tree,
         expansion: ExpansionState.withExpanded([r, dir, sub]),
-      )..focus(const NodeId('/r/dir/sub/deep.txt'));
+      )..focus(deep);
       expect(tree[dir]!.isExplicit, isFalse);
       final before = controller.rows;
       final counter = NotificationCounter(controller);
@@ -484,29 +486,58 @@ void main() {
       final reload = controller.reloadChildren(dir);
       expect(counter.take(), 1);
       expect(controller.loadStatusOf(dir), DirectoryLoadStatus.loading);
-      expect(controller.tree[dir]!.isExplicit, isTrue);
-      expect(labelsOf(controller.rows), ['r', 'dir', 'file.txt']);
-      expect(recorder.changes, [
-        TreeRowsChange.splice(
-          previous: before,
-          index: 2,
-          removed: 3,
-          inserted: 0,
-        ),
-      ]);
-      expect(controller.focusedId, dir);
-      expect(controller.expansion, ExpansionState.withExpanded([r, dir]));
+      expect(identical(controller.rows, before), isTrue);
+      expect(controller.focusedId, deep);
+      expect(controller.expansion, ExpansionState.withExpanded([r, dir, sub]));
       expect(identical(controller.reloadChildren(dir), reload), isTrue);
       await settle();
       loader.complete(dir, const [TreeEntry.file('/r/dir/new.txt')]);
       await reload;
       expect(counter.take(), 1);
       expect(labelsOf(controller.rows), ['r', 'dir', 'new.txt', 'file.txt']);
+      expect(recorder.changes.last.index, 2);
+      expect(recorder.changes.last.removed, 3);
+      expect(recorder.changes.last.inserted, 1);
+      expect(controller.tree[dir]!.isExplicit, isTrue);
       expect(controller.loadStatusOf(dir), DirectoryLoadStatus.loaded);
+      // The focused file is gone: the focus moves to its nearest ancestor.
+      expect(controller.focusedId, dir);
+      expect(controller.expansion, ExpansionState.withExpanded([r, dir]));
       expectConsistentRows(controller);
     });
 
-    test('reopens the folders that were open as they load again', () async {
+    test('a failed reload keeps the contents and expand retries', () async {
+      final loader = FakeLoader<String>();
+      final errors = LoadErrors();
+      const dir = NodeId('/r/dir');
+      final controller = lazyController(
+        loader,
+        errors: errors,
+        tree: DirectoryTree<String>.build(const [
+          TreeEntry.file('/r/dir/a.txt'),
+          TreeEntry.file('/r/file.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded([r, dir]),
+      );
+      final reload = controller.reloadChildren(dir);
+      await settle();
+      loader.fail(dir, 'offline');
+      await reload;
+      expect(controller.loadStatusOf(dir), DirectoryLoadStatus.failed);
+      expect(controller.loadErrorOf(dir), 'offline');
+      expect(errors.calls, hasLength(1));
+      expect(labelsOf(controller.rows), ['r', 'dir', 'a.txt', 'file.txt']);
+      controller.expand(dir);
+      expect(controller.loadStatusOf(dir), DirectoryLoadStatus.loading);
+      await settle();
+      expect(loader.callsFor(dir), hasLength(2));
+      loader.complete(dir, const [TreeEntry.file('/r/dir/b.txt')]);
+      await settle();
+      expect(labelsOf(controller.rows), ['r', 'dir', 'b.txt', 'file.txt']);
+      expectConsistentRows(controller);
+    });
+
+    test('lists the open folders below it again, keeping them open', () async {
       final loader = FakeLoader<String>();
       const dir = NodeId('/r/dir');
       const sub = NodeId('/r/dir/sub');
@@ -522,7 +553,7 @@ void main() {
         ]),
         expansion: ExpansionState.withExpanded([r, dir, sub, deep]),
       );
-      expect(labelsOf(controller.rows), [
+      const shown = [
         'r',
         'dir',
         'closed',
@@ -531,44 +562,55 @@ void main() {
         'x.txt',
         'a.txt',
         'file.txt',
-      ]);
+      ];
+      expect(labelsOf(controller.rows), shown);
       unawaited(controller.reloadChildren(dir));
-      expect(labelsOf(controller.rows), ['r', 'dir', 'file.txt']);
       await settle();
+      // A loader that lists one level: the folders come back empty.
       loader.complete(dir, const [
         TreeEntry.directory('/r/dir/sub'),
         TreeEntry.directory('/r/dir/closed'),
         TreeEntry.file('/r/dir/a.txt'),
       ]);
       await settle();
-      expect(controller.isExpanded(sub), isTrue);
+      // They keep their contents; the open one loads again right away.
+      expect(labelsOf(controller.rows), shown);
       expect(controller.loadStatusOf(sub), DirectoryLoadStatus.loading);
-      expect(controller.isExpanded(closed), isFalse);
-      expect(controller.loadStatusOf(closed), DirectoryLoadStatus.notLoaded);
+      expect(controller.loadStatusOf(closed), DirectoryLoadStatus.loaded);
+      expect(loader.callsFor(closed), isEmpty);
       loader.complete(sub, const [TreeEntry.directory('/r/dir/sub/deep')]);
       await settle();
+      expect(labelsOf(controller.rows), shown);
       expect(controller.loadStatusOf(deep), DirectoryLoadStatus.loading);
       loader.complete(deep, const [TreeEntry.file('/r/dir/sub/deep/x.txt')]);
+      await settle();
+      expect(labelsOf(controller.rows), shown);
+      expect(
+        controller.expansion,
+        ExpansionState.withExpanded([r, dir, sub, deep]),
+      );
+      expectConsistentRows(controller);
+      // The closed folder lists its contents again when it opens.
+      controller.expand(closed);
+      expect(controller.loadStatusOf(closed), DirectoryLoadStatus.loading);
+      await settle();
+      loader.complete(closed, const [TreeEntry.file('/r/dir/closed/z.txt')]);
       await settle();
       expect(labelsOf(controller.rows), [
         'r',
         'dir',
         'closed',
+        'z.txt',
         'sub',
         'deep',
         'x.txt',
         'a.txt',
         'file.txt',
       ]);
-      expect(
-        controller.expansion,
-        ExpansionState.withExpanded([r, dir, sub, deep]),
-      );
-      expect(loader.callsFor(closed), isEmpty);
       expectConsistentRows(controller);
     });
 
-    test('a new tree ends the reopening', () async {
+    test('a new tree ends the reloads', () async {
       final loader = FakeLoader<String>();
       const dir = NodeId('/r/dir');
       const sub = NodeId('/r/dir/sub');
@@ -631,6 +673,129 @@ void main() {
         expectConsistentRows(controller);
       });
 
+      test('the reloaded folder keeps its row, state, and focus', () async {
+        final loader = FakeLoader<String>();
+        final controller = DirectoryTreeController<String>(
+          tree: DirectoryTree<String>.build(const [
+            TreeEntry.file('/r/d/s/m.dart'),
+            TreeEntry.file('/r/z.txt'),
+          ]),
+          query: 'dart',
+          loadChildren: loader.call,
+        )..collapse(d);
+        controller.focus(d);
+        expect(labelsOf(controller.rows), ['r', 'd']);
+        unawaited(controller.reloadChildren(d));
+        expect(labelsOf(controller.rows), ['r', 'd']);
+        expect(controller.focusedId, d);
+        expect(controller.loadStatusOf(d), DirectoryLoadStatus.loading);
+        await settle();
+        loader.complete(d, const [TreeEntry.file('/r/d/s/m.dart')]);
+        await settle();
+        expect(labelsOf(controller.rows), ['r', 'd']);
+        expect(controller.isExpanded(d), isFalse);
+        expect(controller.focusedId, d);
+        expectConsistentRows(controller);
+      });
+
+      test('a folder above the reloaded one stays collapsed', () async {
+        final loader = FakeLoader<String>();
+        const p = NodeId('/r/p');
+        const q = NodeId('/r/p/q');
+        final controller = DirectoryTreeController<String>(
+          tree: DirectoryTree<String>.build(const [
+            TreeEntry.file('/r/p/q/m.dart'),
+            TreeEntry.file('/r/p/other.txt'),
+            TreeEntry.file('/r/z.txt'),
+          ]),
+          query: 'dart',
+          loadChildren: loader.call,
+        )..collapse(p);
+        expect(labelsOf(controller.rows), ['r', 'p']);
+        unawaited(controller.reloadChildren(q));
+        await settle();
+        loader.complete(q, const [TreeEntry.file('/r/p/q/m.dart')]);
+        await settle();
+        expect(labelsOf(controller.rows), ['r', 'p']);
+        expect(controller.isExpanded(p), isFalse);
+        expectConsistentRows(controller);
+      });
+
+      test('a failed reload keeps the folder on screen', () async {
+        final loader = FakeLoader<String>();
+        final controller = DirectoryTreeController<String>(
+          tree: DirectoryTree<String>.build(const [
+            TreeEntry.file('/r/d/m.dart'),
+            TreeEntry.file('/r/z.dart'),
+          ]),
+          query: 'dart',
+          loadChildren: loader.call,
+          onLoadError: (_, _, _) {},
+        )..focus(d);
+        final reload = controller.reloadChildren(d);
+        await settle();
+        loader.fail(d, 'offline');
+        await reload;
+        expect(labelsOf(controller.rows), ['r', 'd', 'm.dart', 'z.dart']);
+        expect(controller.loadStatusOf(d), DirectoryLoadStatus.failed);
+        expect(controller.focusedId, d);
+      });
+
+      test(
+        'open folders a one-level reload lists again stay on screen',
+        () async {
+          final loader = FakeLoader<String>();
+          const mDart = NodeId('/r/d/s/m.dart');
+          final controller = searched(loader)..focus(mDart);
+          const shown = ['r', 'd', 's', 'm.dart', 't', 'm2.dart'];
+          expect(labelsOf(controller.rows), shown);
+          unawaited(controller.reloadChildren(d));
+          await settle();
+          loader.complete(d, const [
+            TreeEntry.directory('/r/d/s'),
+            TreeEntry.directory('/r/d/t'),
+          ]);
+          await settle();
+          expect(labelsOf(controller.rows), shown);
+          expect(controller.focusedId, mDart);
+          expect(controller.loadStatusOf(s), DirectoryLoadStatus.loading);
+          expect(controller.loadStatusOf(t), DirectoryLoadStatus.loading);
+          loader
+            ..complete(s, const [TreeEntry.file('/r/d/s/m.dart')])
+            ..complete(t, const [TreeEntry.file('/r/d/t/m2.dart')]);
+          await settle();
+          expect(labelsOf(controller.rows), shown);
+          expect(controller.focusedId, mDart);
+          expectConsistentRows(controller);
+        },
+      );
+
+      test('a folder deleted and created again shows its new match', () async {
+        final loader = FakeLoader<String>();
+        final controller = searched(loader)..collapse(s);
+        unawaited(controller.reloadChildren(d));
+        await settle();
+        loader.complete(d, const [TreeEntry.file('/r/d/t/m2.dart')]);
+        await settle();
+        expect(labelsOf(controller.rows), ['r', 'd', 't', 'm2.dart']);
+        unawaited(controller.reloadChildren(d));
+        await settle();
+        loader.complete(d, const [
+          TreeEntry.file('/r/d/s/new.dart'),
+          TreeEntry.file('/r/d/t/m2.dart'),
+        ]);
+        await settle();
+        expect(labelsOf(controller.rows), [
+          'r',
+          'd',
+          's',
+          'new.dart',
+          't',
+          'm2.dart',
+        ]);
+        expectConsistentRows(controller);
+      });
+
       test('a new search reveals the folder again', () async {
         final loader = FakeLoader<String>();
         final controller = searched(loader)..collapse(s);
@@ -675,10 +840,11 @@ void main() {
         const NodeId('/r/dir/c.txt'),
       });
 
-      // A partially checked directory comes back unchecked.
+      // A partially checked directory keeps the checks of the entries
+      // that come back.
       controller.setChecked(const NodeId('/r/dir/a.txt'), checked: false);
       final again = controller.reloadChildren(dir);
-      expect(controller.checkStateOf(dir), CheckState.unchecked);
+      expect(controller.checkStateOf(dir), CheckState.partial);
       await settle();
       loader.complete(dir, const [TreeEntry.file('/r/dir/a.txt')]);
       await again;

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -309,6 +311,47 @@ void main() {
       expect(controller.selection.selected, {c});
       expect(controller.selection.anchor, c);
       expect(controller.isSelected(controller.rows[1].id), isTrue);
+    });
+
+    test('a selection that maps back to the current one does not notify', () {
+      final controller = compactedController()..select(c);
+      final selection = controller.selection;
+      final notifications = notificationsOf(
+        controller,
+        () => controller.selection = SelectionState(
+          mode: SelectionMode.multiple,
+          selected: const [a],
+          anchor: a,
+        ),
+      );
+      expect(notifications, 0);
+      expect(controller.selection, selection);
+    });
+
+    test('reloading a chain member keeps the chain row as it was', () async {
+      final loader = FakeLoader<int>();
+      const d = NodeId('/r/d');
+      const sDir = NodeId('/r/d/s');
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/d/s/m.dart'),
+          TreeEntry.file('/r/d/s/n.txt'),
+          TreeEntry.file('/r/z.txt'),
+        ]),
+        expansion: const ExpansionState.expanded(),
+        compactFolders: true,
+        loadChildren: loader.call,
+      )..toggleExpansion(sDir);
+      expect(labelsOf(controller.rows), ['r', 'd/s', 'z.txt']);
+      unawaited(controller.reloadChildren(d));
+      await settle();
+      loader.complete(d, const [
+        TreeEntry.file('/r/d/s/m.dart'),
+        TreeEntry.file('/r/d/s/n.txt'),
+      ]);
+      await settle();
+      expect(labelsOf(controller.rows), ['r', 'd/s', 'z.txt']);
+      expectConsistentRows(controller);
     });
 
     test('an anchor that outlived the selection moves to the chain end', () {
