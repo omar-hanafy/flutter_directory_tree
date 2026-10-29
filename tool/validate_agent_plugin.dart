@@ -24,12 +24,15 @@
 ///   plugin folder itself, and agree with each other;
 /// - kebab-case identifiers; skill frontmatter: only the Agent Skills fields
 ///   `name`, `description`, `license`, and `compatibility` (`allowed-tools`
-///   would let the agent use tools without the approval prompts both
-///   READMEs promise, and no skill needs the nested `metadata` map), each on
-///   one line with a value a YAML parser reads exactly as written; size
-///   limits; self-contained skill links (inline, angle-bracket, and
-///   reference-style, outside code; footnotes are not links); and no
-///   machine-specific or secret-looking content in any plugin file;
+///   would let the agent use tools without the approval prompts the plugin
+///   README promises, and no skill needs the nested `metadata` map), each
+///   on one line with a value that a YAML 1.1 or 1.2 parser reads as exactly
+///   that string (so numbers, booleans, nulls, and dates must be quoted);
+///   size limits (`description` 1024 characters, `compatibility` 500);
+///   self-contained skill links (inline links, images, and reference-style
+///   definitions, also inside block quotes, all outside code; footnotes are
+///   not links); and no machine-specific or secret-looking content in any
+///   plugin file;
 /// - every eval case has a prompt and graders, and its skill graders name
 ///   skills that exist;
 /// - README.md and the plugin README show, as exact lines of a code block
@@ -107,7 +110,7 @@ const _skillFields = {'name', 'description', 'license', 'compatibility'};
 const _rejectedSkillFields = {
   'allowed-tools':
       'lets the agent use those tools without asking, against the approval '
-      'prompts both READMEs promise',
+      'prompts the plugin README promises',
   'metadata':
       'needs a nested map, which this one-line reader cannot check, and no '
       'skill here needs it',
@@ -622,9 +625,21 @@ const _yamlIndicators = r'>|[]{}&*!%@`#,';
 /// would (nested or multi-line values, block scalars, flow collections,
 /// comments, `: ` in a plain value, duplicate keys). Returns the keys, the
 /// unquoted `name` and `description`, and the index of the closing line.
-({Set<String> keys, String? name, String? description, int end})
+({
+  Set<String> keys,
+  String? name,
+  String? description,
+  String? compatibility,
+  int end,
+})
 _parseFrontmatter(String path, String content) {
-  const none = (keys: <String>{}, name: null, description: null, end: -1);
+  const none = (
+    keys: <String>{},
+    name: null,
+    description: null,
+    compatibility: null,
+    end: -1,
+  );
   final lines = const LineSplitter().convert(content);
   if (lines.isEmpty || lines.first.trim() != '---') {
     _fail('$path: missing YAML frontmatter opening "---".');
@@ -659,6 +674,7 @@ _parseFrontmatter(String path, String content) {
     keys: keys,
     name: values['name'],
     description: values['description'],
+    compatibility: values['compatibility'],
     end: end,
   );
 }
@@ -728,36 +744,56 @@ String? _yamlValue(String path, String key, String raw) {
     reject('starts with the YAML indicator "${raw[0]}"; quote the value');
     return null;
   }
-  if (raw.contains(': ') || raw.endsWith(':')) {
+  if (RegExp(r':[ \t]').hasMatch(raw) || raw.endsWith(':')) {
     reject('contains ": ", which ends a plain YAML value; quote the value');
     return null;
   }
-  if (raw.contains(' #')) {
+  if (RegExp(r'[ \t]#').hasMatch(raw)) {
     reject('contains " #", which starts a YAML comment; quote the value');
+    return null;
+  }
+  if (_nonStringScalars.any((pattern) => pattern.hasMatch(raw))) {
+    reject(
+      'is "$raw", which YAML reads as a number, boolean, null, or date '
+      'rather than this text; quote the value',
+    );
     return null;
   }
   return raw;
 }
 
+/// Plain values that YAML 1.2 (core schema) or YAML 1.1 resolves to a
+/// value other than the same string: booleans (including the YAML 1.1
+/// words), nulls, integers and floats in every base and spelling (`3.10` is
+/// the float 3.1), YAML 1.1 sexagesimal numbers (`1:20` is 80), dates, and
+/// the YAML 1.1 merge and value keys.
+final _nonStringScalars = [
+  RegExp(r'^(?:y|yes|n|no|true|false|on|off|null|~)$', caseSensitive: false),
+  RegExp(
+    r'^(?=[^0-9]*[0-9])[-+]?(?:[0-9][0-9_]*)?(?:\.[0-9_]*)?'
+    r'(?:[eE][-+]?[0-9]+)?$',
+  ),
+  RegExp(r'^[-+]?0(?:x[0-9a-fA-F_]+|o[0-7_]+|b[01_]+)$'),
+  RegExp(r'^[-+]?\.(?:inf|nan)$', caseSensitive: false),
+  RegExp(r'^[-+]?[0-9][0-9_]*(?::[0-5]?[0-9])+(?:\.[0-9_]*)?$'),
+  RegExp(r'^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}'),
+  RegExp(r'^(?:<<|=)$'),
+];
+
 void _checkSkillLinks(String skillDir, String mdPath, String content) {
-  // Brackets in code are code, not links: drop fenced blocks first, then
-  // code spans (a span keeps a placeholder, so link text stays non-empty).
-  final prose = content
-      .replaceAll(
-        RegExp(r'^ {0,3}(```|~~~)[\s\S]*?^ {0,3}\1', multiLine: true),
-        '',
-      )
-      .replaceAll(RegExp(r'(`+)[\s\S]*?\1'), 'code');
+  final prose = _withoutCode(content);
   final targets = [
-    // Inline links and images, with or without angle brackets; the link
-    // text may hold one level of brackets.
+    // The target of every inline link and image: `](target)` or
+    // `](<target>)`. Matching the closing bracket alone checks both the
+    // image and the outer link of `[![alt](image)](target)`.
     for (final match in RegExp(
-      r'\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(\s*<?([^)>\s]+)>?[^)]*\)',
+      r'\]\(\s*(?:<([^>\n]*)>|([^)\s]+))[^)]*\)',
     ).allMatches(prose))
-      match.group(1)!,
-    // Reference-style link definitions; `[^1]:` starts a footnote.
+      match.group(1) ?? match.group(2)!,
+    // Reference-style link definitions, also inside block quotes;
+    // `[^1]:` starts a footnote.
     for (final match in RegExp(
-      r'^ {0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
+      r'^(?: {0,3}>)* {0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
       multiLine: true,
     ).allMatches(prose))
       match.group(1)!,
@@ -783,6 +819,64 @@ void _checkSkillLinks(String skillDir, String mdPath, String content) {
       _fail('$mdPath: link target "$target" does not exist.');
     }
   }
+}
+
+/// [markdown] without code: fenced blocks (closed only by a fence of the
+/// same character at least as long as the opening one, or by the end of
+/// the file) are dropped, and code spans (closed by a backtick run of the
+/// same length within the same paragraph) become a placeholder, so
+/// brackets in code are never read as links.
+String _withoutCode(String markdown) {
+  final kept = <String>[];
+  String? fence;
+  for (final line in const LineSplitter().convert(markdown)) {
+    final marker = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line)?.group(1);
+    if (fence == null) {
+      if (marker != null &&
+          !(marker[0] == '`' &&
+              line.contains('`', line.indexOf(marker) + marker.length))) {
+        fence = marker;
+        continue;
+      }
+      kept.add(line);
+    } else if (marker != null &&
+        marker[0] == fence[0] &&
+        marker.length >= fence.length &&
+        line.trim() == marker) {
+      fence = null;
+    }
+  }
+  final paragraphs = kept.join('\n').split(RegExp(r'\n[ \t]*\n'));
+  return paragraphs.map(_withoutCodeSpans).join('\n\n');
+}
+
+/// [paragraph] with each code span replaced by `code`: a run of n backticks
+/// opens a span that the next run of exactly n backticks closes; a run
+/// with no partner stays as text.
+String _withoutCodeSpans(String paragraph) {
+  final runs = RegExp('`+').allMatches(paragraph).toList();
+  final out = StringBuffer();
+  var copied = 0;
+  var i = 0;
+  while (i < runs.length) {
+    final open = runs[i];
+    final length = open.end - open.start;
+    final close = runs.indexWhere(
+      (run) => run.end - run.start == length,
+      i + 1,
+    );
+    if (close == -1) {
+      i++;
+      continue;
+    }
+    out
+      ..write(paragraph.substring(copied, open.start))
+      ..write('code');
+    copied = runs[close].end;
+    i = close + 1;
+  }
+  out.write(paragraph.substring(copied));
+  return out.toString();
 }
 
 void _checkTextFile(File file) {
@@ -871,6 +965,13 @@ Set<String> _checkSkills() {
       _fail(
         '$skillPath: description is ${description.length} chars; the '
         'portable limit is 1024.',
+      );
+    }
+    final compatibility = frontmatter.compatibility;
+    if (compatibility != null && compatibility.length > 500) {
+      _fail(
+        '$skillPath: compatibility is ${compatibility.length} chars; the '
+        'Agent Skills limit is 500.',
       );
     }
     for (final md
