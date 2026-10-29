@@ -9,15 +9,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Lets real file system work finish and pumps until [finder] finds
 /// something, or fails after about five seconds.
-Future<void> waitFor(WidgetTester tester, Finder finder) async {
+Future<void> waitFor(
+  WidgetTester tester,
+  Finder finder, {
+  bool gone = false,
+}) async {
   for (var i = 0; i < 100; i++) {
     await tester.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 50)),
     );
     await tester.pump();
-    if (finder.evaluate().isNotEmpty) return;
+    if (finder.evaluate().isEmpty == gone) return;
   }
-  fail('Timed out waiting for $finder');
+  fail('Timed out waiting for $finder${gone ? ' to go' : ''}');
 }
 
 void main() {
@@ -64,11 +68,11 @@ void main() {
     await tester.tap(find.byTooltip('Show hidden files'));
     await waitFor(tester, find.text('.hidden_file'));
     await tester.tap(find.byTooltip('Hide hidden files'));
-    // The reload empties the folder at once and then lists it again.
+    // The folder keeps its rows until the new listing replaces them.
     await tester.pump();
-    expect(find.text('.hidden_file'), findsNothing);
-    await waitFor(tester, find.text('visible.txt'));
-    expect(find.text('.hidden_file'), findsNothing);
+    expect(find.text('visible.txt'), findsOneWidget);
+    await waitFor(tester, find.text('.hidden_file'), gone: true);
+    expect(find.text('visible.txt'), findsOneWidget);
   });
 
   testWidgets('a folder that cannot be read reports it in a SnackBar', (

@@ -92,7 +92,8 @@ class _FileSystemBrowserState extends State<FileSystemBrowser> {
       _loader = FileSystemTreeLoader(includeHidden: _includeHidden);
     });
     // Reading the root again with the new loader shows or hides the dot
-    // files; the folders below it load again when they are expanded.
+    // files; the open folders below it are listed again in turn, and the
+    // closed ones when they are next expanded.
     for (final root in controller.tree.roots) {
       unawaited(controller.reloadChildren(root));
     }
