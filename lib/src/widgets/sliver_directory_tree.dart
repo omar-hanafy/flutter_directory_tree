@@ -22,6 +22,7 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_expander.dart'
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';
 import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
+import 'package:flutter_directory_tree/src/widgets/tree_sliver_registry.dart';
 
 /// The visible rows of a [DirectoryTreeController] as a sliver, for a
 /// [CustomScrollView].
@@ -471,6 +472,7 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     _controller
       ..addListener(_handleControllerChanged)
       ..attachViewport(this);
+    registerTreeSliver(_controller, this);
   }
 
   @override
@@ -486,9 +488,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       oldWidget.controller
         ..removeListener(_handleControllerChanged)
         ..detachViewport(this);
+      unregisterTreeSliver(oldWidget.controller, this);
       widget.controller
         ..addListener(_handleControllerChanged)
         ..attachViewport(this);
+      registerTreeSliver(widget.controller, this);
       _resetClicks();
       _cache.clear();
       _adoptRows(widget.controller.rows, splice: null);
@@ -515,6 +519,7 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     _controller
       ..removeListener(_handleControllerChanged)
       ..detachViewport(this);
+    unregisterTreeSliver(_controller, this);
     _clickWindow?.cancel();
     _rowAnimation?.complete();
     _rowAnimation = null;

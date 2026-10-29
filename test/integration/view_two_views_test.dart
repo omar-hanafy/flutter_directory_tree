@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
+import 'package:flutter_directory_tree/src/widgets/tree_sliver_registry.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'integration_test_utils.dart';
@@ -53,6 +54,24 @@ List<Widget> oneItem(BuildContext context, Object? details) => [
 ];
 
 void main() {
+  testWidgets('the slivers of a controller are tracked while mounted', (
+    tester,
+  ) async {
+    final first = expandedController();
+    final second = expandedController();
+    addTearDown(first.dispose);
+    addTearDown(second.dispose);
+    Widget view(DirectoryTreeController<int> controller) =>
+        hostApp(DirectoryTreeView<int>(controller: controller));
+    await tester.pumpWidget(view(first));
+    expect(treeSliversOf(first), hasLength(1));
+    await tester.pumpWidget(view(second));
+    expect(treeSliversOf(first), isEmpty);
+    expect(treeSliversOf(second), hasLength(1));
+    await tester.pumpWidget(const SizedBox());
+    expect(treeSliversOf(second), isEmpty);
+  });
+
   testWidgets('the fallback uses the row of the view with the keyboard', (
     tester,
   ) async {
@@ -133,6 +152,112 @@ void main() {
     nodes[b]!.requestFocus();
     await tester.pump();
     expect(await shiftF10(tester), isTrue);
+    await tester.pumpAndSettle();
+    expect(positions.single, tester.getRect(rowIn(b, readme)).bottomLeft);
+  });
+
+  testWidgets('one menu host around two trees finds the focused tree past '
+      'large content after it', (tester) async {
+    final controller = expandedController();
+    addTearDown(controller.dispose);
+    final positions = <Offset>[];
+    final nodes = {a: FocusNode(), b: FocusNode()};
+    for (final node in nodes.values) {
+      addTearDown(node.dispose);
+    }
+    await tester.pumpWidget(
+      twoViews(
+        (key) => KeyedSubtree(
+          key: key,
+          child: DirectoryTreeKeyboard<int>(
+            controller: controller,
+            focusNode: nodes[key],
+            child: CustomScrollView(
+              slivers: [
+                SliverDirectoryTree<int>(controller: controller),
+                // Thousands of elements after the tree, as in a settings
+                // panel below a file list.
+                SliverToBoxAdapter(
+                  child: Column(
+                    children: [
+                      for (var i = 0; i < 80; i++)
+                        ListTile(
+                          title: Text('Setting $i'),
+                          trailing: IconButton(
+                            onPressed: () {},
+                            icon: const Icon(Icons.more_vert),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        wrap: (child) => DirectoryTreeContextMenu<int>(
+          controller: controller,
+          builder: (context, details) {
+            positions.add(details.globalPosition);
+            return oneItem(context, details);
+          },
+          child: child,
+        ),
+      ),
+    );
+    controller.focus(readme);
+    nodes[b]!.requestFocus();
+    await tester.pump();
+    expect(await shiftF10(tester), isTrue);
+    await tester.pumpAndSettle();
+    expect(positions.single, tester.getRect(rowIn(b, readme)).bottomLeft);
+  });
+
+  testWidgets('focus inside a row of the second tree finds that tree', (
+    tester,
+  ) async {
+    final controller = expandedController();
+    addTearDown(controller.dispose);
+    final positions = <Offset>[];
+    final inner = FocusNode();
+    addTearDown(inner.dispose);
+    await tester.pumpWidget(
+      twoViews(
+        (key) => KeyedSubtree(
+          key: key,
+          child: DirectoryTreeKeyboard<int>(
+            controller: controller,
+            child: CustomScrollView(
+              slivers: [
+                SliverDirectoryTree<int>(
+                  controller: controller,
+                  rowBuilder: (context, details) => DirectoryTreeRow<int>(
+                    details: details,
+                    trailing: key == b && details.row.id == readme
+                        ? Focus(focusNode: inner, child: const SizedBox())
+                        : null,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        wrap: (child) => DirectoryTreeContextMenu<int>(
+          controller: controller,
+          builder: (context, details) {
+            positions.add(details.globalPosition);
+            return oneItem(context, details);
+          },
+          child: child,
+        ),
+      ),
+    );
+    controller.focus(readme);
+    inner.requestFocus();
+    await tester.pump();
+    // The keys of a focused widget inside a row are its own: invoke the
+    // tree's menu intent from there, as an app's binding would.
+    Actions.invoke(inner.context!, const OpenTreeContextMenuIntent());
     await tester.pumpAndSettle();
     expect(positions.single, tester.getRect(rowIn(b, readme)).bottomLeft);
   });

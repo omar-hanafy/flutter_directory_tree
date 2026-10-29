@@ -10,6 +10,7 @@ import 'package:flutter_directory_tree/src/controller/directory_tree_viewport.da
 import 'package:flutter_directory_tree/src/keyboard/tree_intents.dart';
 import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart';
 import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
+import 'package:flutter_directory_tree/src/widgets/tree_sliver_registry.dart';
 
 /// Shows a Material context menu for the rows of a directory tree.
 ///
@@ -399,48 +400,39 @@ class DirectoryTreeContextMenuState<T>
   }
 
   /// The viewport of the [SliverDirectoryTree] of this host's controller
-  /// that has the keyboard focus, or `null`: the sliver around the primary
-  /// focus (a widget inside a row), else the first one below it (the tree's
-  /// keyboard focus node).
+  /// that has the keyboard focus, or `null` when none has it.
   ///
   /// Several views may show one controller, each with its own copy of a
-  /// row. Runs once per key press: an ancestor walk, then a walk of the
-  /// widgets below the focus that never enters a sliver's rows, stopped
-  /// after a bounded number of elements.
+  /// row. A sliver has the keyboard focus when the primary focus is the
+  /// sliver itself or one of its ancestors (the tree's keyboard focus
+  /// node), or lies inside the sliver (a widget in a row). The mounted
+  /// slivers of the controller (see [treeSliversOf]) are checked in the
+  /// order they got it, and the first one with the focus wins. Runs once
+  /// per key press, in O(slivers x depth), whatever the size of the rest
+  /// of the widget tree.
   DirectoryTreeViewport? _focusedViewport() {
     final focus = FocusManager.instance.primaryFocus?.context;
     if (focus is! Element) return null;
-    final controller = widget.controller;
-    DirectoryTreeViewport? viewportOf(Element element) {
-      if (element is! StatefulElement) return null;
-      final tree = element.widget;
-      if (tree is! SliverDirectoryTree<Object?> ||
-          !identical(tree.controller, controller)) {
-        return null;
+    for (final sliver in treeSliversOf(widget.controller)) {
+      if (!sliver.mounted || sliver is! DirectoryTreeViewport) continue;
+      final element = sliver.context as Element;
+      if (_isAncestorOrSelf(focus, element) ||
+          _isAncestorOrSelf(element, focus)) {
+        return sliver as DirectoryTreeViewport;
       }
-      return switch (element.state) {
-        final DirectoryTreeViewport viewport => viewport,
-        _ => null,
-      };
-    }
-
-    DirectoryTreeViewport? found = viewportOf(focus);
-    if (found != null) return found;
-    focus.visitAncestorElements((element) {
-      found = viewportOf(element);
-      return found == null;
-    });
-    if (found != null) return found;
-    final pending = <Element>[focus];
-    for (var visits = 0; pending.isNotEmpty && visits < 4096; visits++) {
-      final element = pending.removeLast();
-      final viewport = viewportOf(element);
-      if (viewport != null) return viewport;
-      // A tree of another controller: its rows hold no sliver of this one.
-      if (element.widget is SliverDirectoryTree<Object?>) continue;
-      element.visitChildElements(pending.add);
     }
     return null;
+  }
+
+  /// Whether [ancestor] is [element] or one of its ancestors. O(depth).
+  static bool _isAncestorOrSelf(Element ancestor, Element element) {
+    if (identical(ancestor, element)) return true;
+    var found = false;
+    element.visitAncestorElements((candidate) {
+      found = identical(candidate, ancestor);
+      return !found;
+    });
+    return found;
   }
 
   /// Shows the requested menu, unless it shows already or the previous menu
