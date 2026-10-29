@@ -19,6 +19,10 @@ import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart
 /// [DirectoryTreeContextMenuState.open]; `DirectoryTreeView` does all of this
 /// wiring when it is given a `contextMenuBuilder`.
 ///
+/// [maybeOf] searches the ancestors of the context it is given, so call it
+/// with a context below this widget, such as the one of a [Builder] inside
+/// [child] (or keep a [GlobalKey] of the state):
+///
 /// ```dart
 /// DirectoryTreeContextMenu<File>(
 ///   controller: controller,
@@ -32,20 +36,30 @@ import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart
 ///       child: const Text('Delete'),
 ///     ),
 ///   ],
-///   child: tree,
+///   // The Builder's context is below the menu host, so maybeOf finds it.
+///   child: Builder(
+///     builder: (context) => CustomScrollView(
+///       slivers: [
+///         SliverDirectoryTree<File>(
+///           controller: controller,
+///           onRowSecondaryTap: (row, globalPosition) =>
+///               DirectoryTreeContextMenu.maybeOf<File>(
+///                 context,
+///               )?.open(row: row, globalPosition: globalPosition),
+///         ),
+///       ],
+///     ),
+///   ),
 /// )
-///
-/// // In the tree's onRowSecondaryTap:
-/// DirectoryTreeContextMenu.maybeOf<File>(context)
-///     ?.open(row: row, globalPosition: globalPosition);
 /// ```
 ///
 /// ## Behavior
 ///
-/// * Opening selects the row when it is not selected (with
-///   [DirectoryTreeController.select], which also focuses it), then calls
-///   [builder] with the [DirectoryTreeMenuDetails]. An empty list opens no
-///   menu.
+/// * With [selectOnOpen] (the default), opening selects the row when it is
+///   not selected (with [DirectoryTreeController.select], which also
+///   focuses it); without it, opening only focuses the row and leaves the
+///   selection alone. Then [builder] runs with the
+///   [DirectoryTreeMenuDetails]. An empty list opens no menu.
 /// * The menu is a [MenuAnchor] menu styled by the ambient [MenuThemeData].
 ///   Its top-start corner is at the position (its top-left corner in
 ///   left-to-right text, its top-right corner in right-to-left text), and it
@@ -66,6 +80,16 @@ import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart
 ///
 /// The menu shows in the nearest [Overlay]. This widget sizes itself like
 /// [child] and adds no semantics of its own.
+///
+/// ## On the web
+///
+/// Browsers show their own context menu for a right click, on top of this
+/// menu, until the app calls `BrowserContextMenu.disableContextMenu()`
+/// (from `package:flutter/services.dart`), for example in `main` when
+/// `kIsWeb` is true. The package never calls it: the setting covers the
+/// whole page, and while it is off, text fields show Flutter's own menu
+/// instead of the browser's. `BrowserContextMenu.enableContextMenu()` turns
+/// the browser menu back on.
 class DirectoryTreeContextMenu<T> extends StatefulWidget {
   /// Creates a context menu host for the rows of [controller].
   const DirectoryTreeContextMenu({
@@ -73,6 +97,7 @@ class DirectoryTreeContextMenu<T> extends StatefulWidget {
     required this.controller,
     required this.builder,
     required this.child,
+    this.selectOnOpen = true,
   });
 
   /// The controller whose rows the menus are for.
@@ -92,6 +117,20 @@ class DirectoryTreeContextMenu<T> extends StatefulWidget {
   /// It gets the same constraints this widget gets, and this widget takes
   /// its size.
   final Widget child;
+
+  /// Whether opening the menu of a row that is not selected selects it;
+  /// true by default.
+  ///
+  /// When true, [DirectoryTreeContextMenuState.open] and the keyboard
+  /// action select an unselected row with [DirectoryTreeController.select]
+  /// first, so the menu acts on that row alone, as file managers do. When
+  /// false, they only focus the row ([DirectoryTreeController.focus]) and
+  /// never change the selection; the menu of an unselected row then acts
+  /// on that row alone ([DirectoryTreeMenuDetails.nodes] is its node), and
+  /// the menu of a selected row on the whole selection. Use false when
+  /// clicks do not select either, such as a view with `selectOnTap: false`
+  /// whose selection the user builds with checkboxes.
+  final bool selectOnOpen;
 
   /// The state of the nearest [DirectoryTreeContextMenu] ancestor of
   /// [context] whose state is a `DirectoryTreeContextMenuState<T>`, or
@@ -122,6 +161,14 @@ class DirectoryTreeContextMenu<T> extends StatefulWidget {
       )
       ..add(
         ObjectFlagProperty<DirectoryTreeMenuBuilder<T>>.has('builder', builder),
+      )
+      ..add(
+        FlagProperty(
+          'selectOnOpen',
+          value: selectOnOpen,
+          ifFalse: 'no select on open',
+          defaultValue: true,
+        ),
       );
   }
 }
@@ -184,7 +231,9 @@ class DirectoryTreeContextMenuState<T>
   /// that is open.
   ///
   /// First selects [row] with [DirectoryTreeController.select] when it is
-  /// not selected (which also focuses it and scrolls it into view), then
+  /// not selected (which also focuses it and scrolls it into view), or,
+  /// without [DirectoryTreeContextMenu.selectOnOpen], focuses it with
+  /// [DirectoryTreeController.focus] when it is not focused. Then
   /// calls [DirectoryTreeContextMenu.builder] with the
   /// [DirectoryTreeMenuDetails]: the controller's current row for the node,
   /// [DirectoryTreeController.selectedNodes] as the nodes when the row is
@@ -238,8 +287,9 @@ class DirectoryTreeContextMenuState<T>
     super.dispose();
   }
 
-  /// Selects [row] when needed, builds the menu, and schedules showing it at
-  /// the place [place] computes once the selection is updated.
+  /// Selects or focuses [row] as [DirectoryTreeContextMenu.selectOnOpen]
+  /// says, builds the menu, and schedules showing it at the place [place]
+  /// computes once the selection is updated.
   void _openAt(
     TreeRow<T> row,
     ({Offset position, Rect anchor}) Function() place,
@@ -248,7 +298,11 @@ class DirectoryTreeContextMenuState<T>
     final controller = widget.controller;
     final id = row.id;
     if (!controller.tree.contains(id)) return;
-    if (!controller.isSelected(id)) controller.select(id);
+    if (widget.selectOnOpen) {
+      if (!controller.isSelected(id)) controller.select(id);
+    } else if (controller.focusedId != id) {
+      controller.focus(id);
+    }
     final current = controller.rows.rowOf(id) ?? row;
     final nodes = controller.isSelected(id)
         ? controller.selectedNodes
