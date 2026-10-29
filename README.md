@@ -316,9 +316,12 @@ print(controller.rows.map((row) => row.label)); // (bucket, photos, notes.txt)
 The row of a loading folder shows a progress indicator in place of its
 arrow. A load that throws marks the folder `DirectoryLoadStatus.failed`,
 calls `onLoadError`, and shows an error icon in place of the arrow.
-Clicking the icon, or opening the folder again, retries the load. `reloadChildren(id)` drops a folder's contents and
-loads them again, as a refresh button would. Loads still running when the
-tree is replaced are discarded.
+Clicking the icon, or opening the folder again, retries the load.
+
+`reloadChildren(id)` drops a folder's contents and loads them again, as a
+refresh button would; the folders that were open below it open again as
+their contents come back. Loads still running when the tree is replaced
+are discarded, and an open folder whose load was discarded loads again.
 
 ### The local file system
 
@@ -381,11 +384,19 @@ number of rows that fit on screen.
 
 Typing the start of a name jumps to a row whose label starts with
 it, ignoring case; repeating one letter cycles through the rows that start
-with it. Space joins the search only while one is in progress.
+with it. Space joins the search only while one is in progress. Letters
+typed with Option on macOS or AltGr on Windows count as typing.
 
 The keys act only while the tree itself has keyboard focus. A click on a
-row gives it focus. When a text field or a button, even one inside a
-custom row, has focus, every key goes to that widget instead.
+row gives it focus. When the tree gets the focus without a focused row,
+by Tab or `autofocus`, the focus goes to the first selected row, or to the
+first row. When a text field or a button, even one inside a custom row,
+has focus, every key goes to that widget instead.
+
+With `selectionFollowsFocus: false`, the arrows, Home, End, the page keys,
+and type-ahead move the focus without changing the selection, and Space
+toggles the focused row; the picker works this way for a multiple
+selection without checkboxes.
 
 To change a binding, spread the defaults into a new map and pass it as
 `shortcuts` (`defaultTargetPlatform` comes from
@@ -425,7 +436,7 @@ above the view. `DirectoryTreeKeyboard` documents every intent.
 | Ctrl-click, or Cmd-click on macOS | Adds the row to the selection or removes it. |
 | Double-click | Activates the row: a folder opens or closes once, then `onActivate` runs. |
 | Click on the arrow or the checkbox | Toggles it, without selecting or activating the row. |
-| Secondary click, Ctrl-click on macOS, or a touch long press | Selects the row unless it is already selected, then calls `onRowSecondaryTap` and opens the context menu. |
+| Secondary click, Ctrl-click on macOS, or a touch long press | Selects the row unless it is already selected (only focuses it with `selectOnTap: false`), then calls `onRowSecondaryTap` and opens the context menu. |
 | Mouse hover | Highlights the row with the theme's `hoverColor`. Touch never hovers. |
 
 Clicks act when the pointer goes up, and a single click is never delayed
@@ -461,16 +472,23 @@ final view = DirectoryTreeView(
 
 The menu opens on a secondary click, a touch long press, Shift+F10, and the
 context menu key, at the pointer or below the focused row. Before it
-opens, the row is selected if it was not. `details.nodes` is the whole
-selection when the user opened the menu on a selected row, and only that
-row's node otherwise, so "Delete" deletes what the user selected. Return
-an empty list to open no menu for a row.
+opens, the row is selected if it was not, unless the view has
+`selectOnTap: false`, which leaves the selection to the app.
+`details.nodes` is the whole selection when the user opened the menu on a
+selected row, and only that row's node otherwise, so "Delete" deletes what
+the user selected. Return an empty list to open no menu for a row.
 
 The menu is a Material `MenuAnchor` menu. To show a menu from another
 design system, leave `contextMenuBuilder` out and handle
 `onRowSecondaryTap`, which receives the row and the global pointer
-position; Shift+F10 then calls it at the bottom-left corner of the focused
-row.
+position; Shift+F10 then calls it at the bottom start corner of the
+focused row (bottom right in a right-to-left layout).
+
+On the web, a right click also opens the browser's own context menu over
+the tree's menu. Call `BrowserContextMenu.disableContextMenu()` (from
+`package:flutter/services.dart`) while a tree with a menu is on screen,
+and `BrowserContextMenu.enableContextMenu()` when it goes away: the
+setting is page-wide, and text fields use the browser's menu.
 
 ## Drag and drop
 
