@@ -39,16 +39,19 @@ import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 /// the row or activates it: the click does not reach the row's own click
 /// handling.
 ///
-/// Inside a [SliverDirectoryTree] the expander adds nothing to the
-/// semantics tree: the row's node reports the expanded state and the load
-/// state, and offers the expand, collapse, and retry actions, so screen
-/// readers get one node per row with a touch target as large as the row.
-/// Elsewhere the chevron is a button labeled with
+/// For assistive technologies the chevron is a button labeled with
 /// [MaterialLocalizations.collapsedIconTapHint] ("Expand") or
 /// [MaterialLocalizations.expandedIconTapHint] ("Collapse"), and the error
 /// icon a button labeled with
 /// [MaterialLocalizations.refreshIndicatorSemanticLabel] ("Refresh") that
-/// retries the load.
+/// retries the load. Inside a [SliverDirectoryTree] on Android, iOS, and
+/// the desktops the expander adds nothing to the semantics tree instead:
+/// the row's node reports the expanded and load states and offers the
+/// expand, collapse, and retry actions, so screen readers get one node per
+/// row with a touch target as large as the row. On the web it stays a
+/// button inside the row, because the web engine has no expand, collapse,
+/// or custom actions: it is the only way a web screen reader can expand a
+/// folder or retry a load where a tap on the row toggles its checkbox.
 class DirectoryTreeExpander<T> extends StatelessWidget {
   /// Creates the expander of the row described by [details].
   const DirectoryTreeExpander({super.key, required this.details});
@@ -133,8 +136,9 @@ class DirectoryTreeExpander<T> extends StatelessWidget {
       onTap: onTap,
       child: MouseRegion(cursor: SystemMouseCursors.click, child: box),
     );
-    // In a sliver row the row's node carries the state and the actions.
-    if (RowSemanticsScope.isInside(context)) {
+    // In a sliver row the row's node carries the state and the actions,
+    // except on the web, whose engine cannot perform them.
+    if (RowSemanticsScope.isInside(context) && !kIsWeb) {
       return ExcludeSemantics(child: button);
     }
     return Semantics(

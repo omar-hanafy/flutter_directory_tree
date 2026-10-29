@@ -566,14 +566,28 @@ void main() {
         tester.getSemantics(rowOf(lazy)),
         isSemantics(label: 'lazy', value: 'Failed to load'),
       );
-      // The expander does not add a node of its own that says Expand.
+      // No node says Expand; on the web, where custom actions do not
+      // exist, the expander is a Refresh button of its own.
       expect(find.semantics.byLabel('Expand'), findsNothing);
+      expect(
+        find.semantics.byLabel('Refresh'),
+        kIsWeb ? findsOneWidget : findsNothing,
+      );
+      if (kIsWeb) {
+        tester.semantics.tap(find.semantics.byLabel('Refresh'));
+        await tester.pump();
+        await tester.pump();
+        expect(loader.calls, [lazy, lazy]);
+        loader.fail(lazy, StateError('offline'));
+        await tester.pump();
+        await tester.pump();
+      }
       final retry = customAction(tester, lazy, 'Refresh');
       expect(retry, isNotNull);
       tester.semantics.customAction(find.semantics.byLabel('lazy'), retry!);
       await tester.pump();
       await tester.pump();
-      expect(loader.calls, [lazy, lazy]);
+      expect(loader.calls, hasLength(kIsWeb ? 3 : 2));
       expect(controller.loadStatusOf(lazy), DirectoryLoadStatus.loading);
       semantics.dispose();
     });

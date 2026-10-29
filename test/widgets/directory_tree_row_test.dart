@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
@@ -433,23 +434,43 @@ void main() {
       expect(controller.loadStatusOf(lazy), DirectoryLoadStatus.loaded);
     });
 
-    testWidgets('adds no semantics node inside the sliver', (tester) async {
+    testWidgets('adds no semantics node inside the sliver, except on the web', (
+      tester,
+    ) async {
       final semantics = tester.ensureSemantics();
       final controller = expandedController()..collapse(src);
       addTearDown(controller.dispose);
-      await tester.pumpWidget(treeApp(controller: controller));
-      // The row nodes carry the expanded state and the actions instead.
-      expect(find.semantics.byLabel('Expand'), findsNothing);
-      expect(find.semantics.byLabel('Collapse'), findsNothing);
-      expect(
-        tester.getSemantics(
-          find.descendant(
-            of: rowOf(src),
-            matching: find.byType(DirectoryTreeExpander<int>),
-          ),
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          checkboxMode: DirectoryTreeCheckboxMode.checks,
         ),
-        same(tester.getSemantics(rowOf(src))),
       );
+      final expanderNode = tester.getSemantics(
+        find.descendant(
+          of: rowOf(src),
+          matching: find.byType(DirectoryTreeExpander<int>),
+        ),
+      );
+      if (!kIsWeb) {
+        // The row nodes carry the expanded state and the actions instead.
+        expect(find.semantics.byLabel('Expand'), findsNothing);
+        expect(find.semantics.byLabel('Collapse'), findsNothing);
+        expect(expanderNode, same(tester.getSemantics(rowOf(src))));
+      } else {
+        // The web engine has no expand, collapse, or custom actions, and a
+        // tap on a row toggles its checkbox: the expander stays a button.
+        expect(
+          expanderNode,
+          matchesSemantics(label: 'Expand', isButton: true, hasTapAction: true),
+        );
+        expect(find.semantics.byLabel('Collapse'), findsNWidgets(3));
+        tester.semantics.tap(find.semantics.byLabel('Expand'));
+        await tester.pump();
+        expect(controller.isExpanded(src), isTrue);
+        expect(controller.checks.isEmpty, isTrue);
+      }
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
       semantics.dispose();
     });
 

@@ -140,10 +140,14 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 ///   touch screen reader users can open files;
 /// * long press: the secondary tap, when [onRowSecondaryTap] is set.
 ///
-/// The default [DirectoryTreeExpander] and [DirectoryTreeCheckbox] add no
-/// node of their own inside the sliver. A custom [rowBuilder] should not
-/// repeat the label in its own semantics; wrap such text in
-/// [ExcludeSemantics].
+/// The default [DirectoryTreeCheckbox] adds no node of its own inside the
+/// sliver, and neither does the default [DirectoryTreeExpander] except on
+/// the web. The web engine has no expand, collapse, or custom semantics
+/// actions, so there the expander stays a button inside the row (Expand,
+/// Collapse, or Refresh), and the Open action is not available: web screen
+/// reader users activate rows with Enter or a double-click. A custom
+/// [rowBuilder] should not repeat the label in its own semantics; wrap
+/// such text in [ExcludeSemantics].
 class SliverDirectoryTree<T> extends StatefulWidget {
   /// Creates the sliver of [controller]'s rows.
   const SliverDirectoryTree({
@@ -239,7 +243,9 @@ class SliverDirectoryTree<T> extends StatefulWidget {
   /// Rows offer the action only while [onActivate] is set. It is how touch
   /// screen reader users, who have no double-click and no Enter key, reach
   /// [onActivate]; pass a localized verb that says what activation does in
-  /// the app, such as "Open".
+  /// the app, such as "Open". The web engine has no custom semantics
+  /// actions, so on the web the action does not exist and Enter or a
+  /// double-click activates rows.
   final String activateSemanticsLabel;
 
   /// The semantics value of a lazy directory row while its children load;
