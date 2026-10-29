@@ -84,16 +84,17 @@ import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 /// the focused row, which [SliverDirectoryTree] marks as focused while
 /// this node has the focus.
 ///
-/// When the tree gains the focus (by Tab, [autofocus], or
-/// [FocusNode.requestFocus]) while the controller has no focused row, the
+/// When [focusNode] itself gains the primary focus (by Tab, [autofocus],
+/// or [FocusNode.requestFocus]) while the controller has no focused row, the
 /// keyboard cursor goes to the first selected row of
 /// [DirectoryTreeController.rows], or to the first row when no row is
 /// selected, as the WAI-ARIA tree pattern describes. This only focuses the
 /// row with [DirectoryTreeController.focus], which scrolls it into view;
 /// the selection does not change. A click focuses its row before the tree
 /// gains the focus, so a click never puts the cursor on another row first.
-/// Finding the selected row costs O(min(s, r) x log rows) for s selected
-/// ids and the index r of the row found.
+/// A focusable widget inside a row (a text field) taking the focus moves
+/// no cursor. Finding the selected row costs O(min(s, r) x log rows) for
+/// s selected ids and the index r of the row found.
 ///
 /// ## Type-ahead
 ///
@@ -319,6 +320,11 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
   String _typeAhead = '';
   Timer? _typeAheadTimer;
 
+  // The node whose primary focus this state follows, and whether it had
+  // the primary focus at its latest change.
+  FocusNode? _listenedNode;
+  bool _hadPrimaryFocus = false;
+
   FocusNode get _focusNode =>
       widget.focusNode ??
       (_ownedFocusNode ??= FocusNode(debugLabel: 'DirectoryTreeKeyboard'));
@@ -369,11 +375,31 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
         context: context,
       ),
     };
+    _listenToFocusNode();
+  }
+
+  /// Follows the primary focus of the current [_focusNode].
+  void _listenToFocusNode() {
+    final node = _focusNode;
+    if (identical(node, _listenedNode)) return;
+    _listenedNode?.removeListener(_handleFocusNodeChanged);
+    _listenedNode = node..addListener(_handleFocusNodeChanged);
+    _hadPrimaryFocus = node.hasPrimaryFocus;
+  }
+
+  /// Gives the cursor a row when the tree's own node gains the primary
+  /// focus: from outside, or from a focusable widget inside a row (a text
+  /// field), which itself never moves the cursor.
+  void _handleFocusNodeChanged() {
+    final primary = _listenedNode?.hasPrimaryFocus ?? false;
+    if (primary && !_hadPrimaryFocus) _focusInitialRow();
+    _hadPrimaryFocus = primary;
   }
 
   @override
   void didUpdateWidget(DirectoryTreeKeyboard<T> oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _listenToFocusNode();
     if (!widget.typeAhead ||
         !identical(widget.controller, oldWidget.controller)) {
       _resetTypeAhead();
@@ -382,6 +408,8 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
 
   @override
   void dispose() {
+    _listenedNode?.removeListener(_handleFocusNodeChanged);
+    _listenedNode = null;
     _typeAheadTimer?.cancel();
     _shortcutManager.dispose();
     _ownedFocusNode?.dispose();
@@ -422,11 +450,7 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
   }
 
   void _handleFocusChange(bool focused) {
-    if (focused) {
-      _focusInitialRow();
-    } else {
-      _resetTypeAhead();
-    }
+    if (!focused) _resetTypeAhead();
   }
 
   /// Gives the keyboard cursor a row when the tree gains the focus without

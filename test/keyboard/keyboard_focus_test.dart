@@ -127,6 +127,52 @@ void main() {
       await tester.pump();
       expect(controller.focusedId, isNull);
     });
+
+    testWidgets('a text field inside the tree taking the focus moves no '
+        'cursor; the tree node itself taking it afterwards does', (
+      tester,
+    ) async {
+      // keyboard_test_utils' app: a text field inside the keyboard widget.
+      final h = await pumpKeyboard(tester, focusTree: false);
+      h.controller.focus(null);
+      await tester.pump();
+      final focused = <NodeId?>[];
+      void record() => focused.add(h.controller.focusedId);
+      h.controller.addListener(record);
+      addTearDown(() => h.controller.removeListener(record));
+      h.insideFocus.requestFocus();
+      await tester.pump();
+      expect(h.treeFocus.hasFocus, isTrue);
+      expect(h.controller.focusedId, isNull);
+      expect(h.viewport.shown, isEmpty);
+      expect(focused, isEmpty);
+      // From the field to the tree's own node: hasFocus stays true, the
+      // primary focus arrives.
+      h.treeFocus.requestFocus();
+      await tester.pump();
+      expect(h.controller.focusedId, r);
+    });
+
+    testWidgets('a new focus node is followed', (tester) async {
+      final controller = keyboardController();
+      addTearDown(controller.dispose);
+      final first = FocusNode();
+      final second = FocusNode();
+      addTearDown(first.dispose);
+      addTearDown(second.dispose);
+      Widget app(FocusNode node) => MaterialApp(
+        home: DirectoryTreeKeyboard<Object?>(
+          controller: controller,
+          focusNode: node,
+          child: const SizedBox(),
+        ),
+      );
+      await tester.pumpWidget(app(first));
+      await tester.pumpWidget(app(second));
+      second.requestFocus();
+      await tester.pump();
+      expect(controller.focusedId, r);
+    });
   });
 
   group('selectionFollowsFocus: false', () {
