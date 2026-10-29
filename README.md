@@ -334,8 +334,10 @@ replace them in one change: expansion, selection, checks, and focus stay
 with every entry that still exists. With a loader that lists one level,
 the open folders below it are listed again in turn, and closed ones the
 next time they open. A failed reload keeps the contents, and opening the
-folder again retries. Loads still running when the tree is replaced are
-discarded, and an open folder whose load was discarded loads again.
+folder again retries; a compacted row such as `src/main` shows the loads
+of all its folders and retries them. Loads still running when the tree is
+replaced are discarded, and an open folder whose load was discarded loads
+again, also when it was a reload.
 
 ### The local file system
 

@@ -2,6 +2,8 @@
 // library is not exported by the package.
 import 'package:directory_tree/directory_tree.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_directory_tree/src/controller/directory_loading.dart';
+import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
 // Imported only so documentation references resolve.
 import 'package:flutter_directory_tree/src/widgets/directory_tree_checkbox.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_expander.dart';
@@ -86,4 +88,38 @@ void toggleCheckbox<T>(
     case DirectoryTreeCheckboxMode.none:
       break;
   }
+}
+
+/// The load status the row of [row] shows: the status of the row's node,
+/// except that a compacted row shows [DirectoryLoadStatus.loading] while
+/// one of the directories above its node in the row loads, else
+/// [DirectoryLoadStatus.failed] when one of their loads failed. O(chain
+/// length).
+DirectoryLoadStatus rowLoadStatus<T>(
+  DirectoryTreeController<T> controller,
+  TreeRow<T> row,
+) {
+  var status = controller.loadStatusOf(row.id);
+  if (status == DirectoryLoadStatus.loading ||
+      !controller.compactFolders ||
+      row.node is! DirectoryNode<T>) {
+    return status;
+  }
+  final tree = controller.tree;
+  // The row's other directories are the parents whose only child is the
+  // directory below them; hidden roots never join a chain.
+  var parentId = row.node.parent;
+  while (parentId != null) {
+    final parent = tree[parentId];
+    if (parent is! DirectoryNode<T> ||
+        parent.children.length != 1 ||
+        (parent.isRoot && !controller.showRoots)) {
+      break;
+    }
+    final above = controller.loadStatusOf(parentId);
+    if (above == DirectoryLoadStatus.loading) return above;
+    if (above == DirectoryLoadStatus.failed) status = above;
+    parentId = parent.parent;
+  }
+  return status;
 }

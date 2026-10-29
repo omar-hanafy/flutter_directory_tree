@@ -130,7 +130,11 @@ final class DirectoryTreeRowDetails<T> {
   /// The lazy-loading status of the row's node.
   ///
   /// [DirectoryLoadStatus.loaded] for files and for every node of a
-  /// controller without a loader.
+  /// controller without a loader. A compacted row (see
+  /// [DirectoryTreeController.compactFolders]) shows
+  /// [DirectoryLoadStatus.loading] while one of the directories above its
+  /// node in the row loads, and [DirectoryLoadStatus.failed] when one of
+  /// their loads failed, since expanding the row retries that load.
   final DirectoryLoadStatus loadStatus;
 
   /// Whether the row shows an expander, from

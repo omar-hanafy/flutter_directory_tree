@@ -7,10 +7,13 @@ import 'package:flutter_directory_tree/src/controller/directory_tree_controller.
 /// Pass one to [DirectoryTreeController.new] as `loadChildren`. The
 /// controller calls it with the [DirectoryNode] whose contents are wanted
 /// (when [DirectoryTreeController.expand] opens a directory that was never
-/// loaded, or from [DirectoryTreeController.loadChildren] and
+/// loaded or waits to be listed again, or from
+/// [DirectoryTreeController.loadChildren] and
 /// [DirectoryTreeController.reloadChildren]) and puts the entries it
 /// returns into [DirectoryTreeController.tree] in place of the directory's
-/// contents.
+/// contents. A directory below it that the entries name without contents
+/// keeps the contents it had, until it is listed itself (see
+/// [DirectoryTreeController.reloadChildren]).
 ///
 /// Return entries strictly inside `directory`, usually its direct children.
 /// Deeper entries are accepted too (their missing parent directories are

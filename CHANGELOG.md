@@ -25,8 +25,9 @@ the theme parameters `indent` and `rowHeight` and the re-exported
 - Lazy loading with `loadChildren`, `loadStatusOf`, `loadChildren(id)`,
   and `reloadChildren(id)`, and `FileSystemTreeLoader` in the new
   `package:flutter_directory_tree/io.dart` library, which also re-exports
-  `DirectoryScanner`. A reload reopens the folders that were open below
-  it as their contents come back.
+  `DirectoryScanner`. A reload keeps the folder's contents until the new
+  listing replaces them, so the folders below it keep their state, and
+  the open ones are listed again in turn.
 - `SliverDirectoryTree`, a virtualized sliver with fixed-height rows that
   rebuilds only the rows whose state changed, keeps the first visible row
   in place when the rows change, and animates the rows a folder reveals.

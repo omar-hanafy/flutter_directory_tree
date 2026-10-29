@@ -367,10 +367,40 @@ final class _Run {
     }
   }
 
+  /// A tree change prunes the requested state, and a directory of a
+  /// visible compacted row that stops continuing the row's chain takes the
+  /// row's state.
   void modelTreeChange(_Snapshot before) {
-    if (!identical(controller.tree, before.tree)) {
-      model = model.prune(controller.tree);
+    final tree = controller.tree;
+    if (identical(tree, before.tree)) return;
+    var next = model.prune(tree);
+    if (before.compactFolders && controller.compactFolders) {
+      for (final row in before.rows) {
+        if (row.node is! DirectoryNode<int>) continue;
+        var parentId = row.node.parent;
+        while (parentId != null) {
+          final parent = before.tree[parentId];
+          if (parent is! DirectoryNode<int> ||
+              parent.children.length != 1 ||
+              (parent.isRoot && !before.showRoots)) {
+            break;
+          }
+          final now = tree[parentId];
+          final continues =
+              now is DirectoryNode<int> &&
+              now.children.length == 1 &&
+              tree[now.children.first] is DirectoryNode<int>;
+          if (now is DirectoryNode<int> &&
+              !continues &&
+              next.isExpanded(row.id)) {
+            next = next.expand(parentId);
+            _cover('chain broke open');
+          }
+          parentId = parent.parent;
+        }
+      }
     }
+    model = next;
   }
 
   /// A new tree from the setter: the requested state is pruned.

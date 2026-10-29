@@ -229,10 +229,14 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///   the nearest row that shows it (see [focusedId]).
   /// * Load statuses start over from the new tree (see [loadStatusOf]) and
   ///   loads still in flight are discarded when they finish. A directory
-  ///   whose load was discarded loads again when the new tree still has it
-  ///   without children and it is expanded, so it never stays open and
-  ///   empty. With a loader and [showRoots] false, top-level directories
-  ///   without children start loading.
+  ///   whose load was discarded loads again when it is expanded and the new
+  ///   tree still has it: without children, so it never stays open and
+  ///   empty, and with children when the load was a [reloadChildren]. A
+  ///   directory with children that was waiting to be listed again (its
+  ///   reload was discarded or failed, or a reload above it kept its
+  ///   contents) is listed the next time it is expanded. With a loader and
+  ///   [showRoots] false, top-level directories without children start
+  ///   loading.
   /// * While filtering with [revealMatches], the matches stay revealed. A
   ///   directory that held a match keeps its effective state, so a folder
   ///   the user collapsed during the search stays collapsed, also inside a
@@ -252,8 +256,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     _applyTree(value, discardLoads: true);
     for (final id in interrupted) {
       final directory = _tree[id];
+      // A directory inside a compacted row is open when the row is.
       if (directory is DirectoryNode<T> &&
-          isExpanded(id) &&
+          isExpanded(_chainEnd(directory).id) &&
           _loadsOnExpand(directory)) {
         unawaited(_startLoad(directory));
       }
@@ -371,11 +376,15 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// For an id inside a compacted chain (an intermediate directory such as
   /// `src` in `lib/src/utils`), the chain's deepest directory expands, with
   /// or without a row, as [TreeRows.expandNode] does. A directory without
-  /// a row only changes its state. When the directory that expands has no
-  /// children, a loader, and the status [DirectoryLoadStatus.notLoaded] or
-  /// [DirectoryLoadStatus.failed], this also starts [loadChildren] for it
-  /// unless the effective filter hides it; this happens even when it is
-  /// already expanded, which retries a failed load.
+  /// a row only changes its state. With a loader, this also starts a load
+  /// of the directory that expands when it has no children and the status
+  /// [DirectoryLoadStatus.notLoaded] or [DirectoryLoadStatus.failed], or
+  /// when it has children that wait to be listed again: its
+  /// [reloadChildren] failed, or a reload above it kept its contents. In a
+  /// compacted row the outermost directory of the row that needs a load is
+  /// loaded, since its listing lists the ones below it again. No load
+  /// starts while the effective filter hides the row. This happens even
+  /// when the directory is already expanded, which retries a failed load.
   ///
   /// Does nothing for files and unknown ids. A top-level directory while
   /// [showRoots] is false always counts as expanded, so only the load rule
@@ -387,7 +396,8 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     if (node is! DirectoryNode<T>) return;
     final target = _chainEnd(node);
     _toggle(node, expand: true);
-    if (_loadsOnExpand(target)) unawaited(_startLoad(target));
+    final load = _loadOnExpand(target);
+    if (load != null) unawaited(_startLoad(load));
     _commit();
   }
 
@@ -1197,20 +1207,24 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// place of its current contents, as a refresh button does.
   ///
   /// The directory keeps its contents while the load runs: its rows stay,
-  /// and its status is [DirectoryLoadStatus.loading]. Loads below it are
-  /// discarded, and the load statuses below it start over. When the load
-  /// succeeds, the loaded entries replace the entries below the directory
-  /// in one change, as in [loadChildren]: expansion, selection, checks, and
+  /// and its status is [DirectoryLoadStatus.loading]. Loads below it keep
+  /// running, and the statuses below it stay, until the load succeeds:
+  /// then the loads still running below it are discarded, the load
+  /// statuses below it start over, and the loaded entries replace the
+  /// entries below the directory in one change, as in [loadChildren]: expansion, selection, checks, and
   /// the focus stay with every node that still exists, a directory that was
   /// checked stays checked (its new leaves are checked too), and while
   /// filtering a folder the user collapsed during the search stays
   /// collapsed. A directory below it that the load returns without contents
   /// but that had contents (a loader that lists one level) keeps its
   /// previous contents and is listed again too: right away when it is
-  /// expanded, so a refresh lists the open folders level by level, and
-  /// otherwise the next time it is expanded. When the load fails, the
-  /// contents stay, the status becomes [DirectoryLoadStatus.failed], and
-  /// expanding the directory or [loadChildren] retries.
+  /// expanded (also while the filter hides it, so new matches in it show),
+  /// so a refresh lists the open folders level by level, and otherwise the
+  /// next time it is expanded, also after a new [tree]. When the load
+  /// fails, the contents stay, the status becomes
+  /// [DirectoryLoadStatus.failed], and expanding the directory or
+  /// [loadChildren] retries. A new [tree] set while the load runs starts it
+  /// again when the directory is expanded, else at its next expand.
   ///
   /// Returns the running load's future when a load of [id] is in progress
   /// already. Completes right away without a loader, for files, unknown
@@ -1221,7 +1235,6 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     if (pending != null) return pending.future;
     final node = _tree[id];
     if (node is! DirectoryNode<T>) return Future<void>.value();
-    _resetBelow(id);
     final future = _startLoad(node);
     _commit();
     return future;
@@ -1820,9 +1833,43 @@ class DirectoryTreeController<T> extends ChangeNotifier {
           ? requested
           : effective.expandAll(open.effective);
     }
+    // A compacted row whose chain breaks keeps the state the user saw: the
+    // directories that stop continuing its chain take the row's state, as
+    // turning compactFolders off does.
+    if (_compactFolders && previousRows.compactFolders) {
+      final broken = _brokenChains(previousTree, previousRows);
+      if (broken.isNotEmpty) {
+        final shown = effective;
+        requested = requested.expandAll([
+          for (final (member, row) in broken)
+            if (requested.isExpanded(row)) member,
+        ]);
+        effective = _effectiveFilter == null
+            ? requested
+            : shown.expandAll([
+                for (final (member, row) in broken)
+                  if (shown.isExpanded(row)) member,
+              ]);
+      }
+    }
     _setRequested(requested);
     if (discardLoads) {
-      _stale.clear();
+      // A directory that keeps its contents but waited to be listed again
+      // (stale, a reload discarded here, or a failed reload) still waits:
+      // it is listed when it is expanded, at once when the setter finds it
+      // open.
+      final relist = <NodeId>{
+        ..._stale,
+        for (final id in _loads.keys)
+          if (_hasContents(previousTree, id)) id,
+        for (final MapEntry(:key, :value) in _statusOverrides.entries)
+          if (value == DirectoryLoadStatus.failed &&
+              _hasContents(previousTree, key))
+            key,
+      };
+      _stale
+        ..clear()
+        ..addAll(relist.where((id) => _hasContents(next, id)));
       _statusOverrides.clear();
       _loadErrors.clear();
       _loads.clear();
@@ -1842,6 +1889,42 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     _focusedId = focused;
     _selectChainEnds();
     _maintainFocus();
+  }
+
+  /// Whether [id] is a directory of [tree] with children.
+  static bool _hasContents(DirectoryTree<Object?> tree, NodeId id) {
+    final node = tree[id];
+    return node is DirectoryNode<Object?> && node.hasChildren;
+  }
+
+  /// The directories of the compacted rows of [previous] (rows of
+  /// [before]) that no longer continue a chain in [tree], each with the id
+  /// of its row. O(rows + chain lengths).
+  List<(NodeId, NodeId)> _brokenChains(
+    DirectoryTree<T> before,
+    TreeRows<T> previous,
+  ) {
+    final broken = <(NodeId, NodeId)>[];
+    for (final row in previous) {
+      if (row.node is! DirectoryNode<T>) continue;
+      // The row's other directories are the parents whose only child is
+      // the directory below them; hidden roots never join a chain.
+      var parentId = row.node.parent;
+      while (parentId != null) {
+        final parent = before[parentId];
+        if (parent is! DirectoryNode<T> ||
+            parent.children.length != 1 ||
+            (parent.isRoot && !previous.showRoots)) {
+          break;
+        }
+        final now = _tree[parentId];
+        if (now is DirectoryNode<T> && !_continuesChain(now)) {
+          broken.add((parentId, row.id));
+        }
+        parentId = parent.parent;
+      }
+    }
+    return broken;
   }
 
   /// [id] when [next] contains it, else the id of the nearest ancestor of
@@ -1989,22 +2072,41 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   bool _loadsOnExpand(DirectoryNode<T> directory) {
     if (_loader == null || _loads.containsKey(directory.id)) return false;
     final status = loadStatusOf(directory.id);
-    final filter = _effectiveFilter;
     if (directory.hasChildren) {
       // Contents a reload kept: after it failed, or listed without them.
       if (status != DirectoryLoadStatus.failed &&
           !_stale.contains(directory.id)) {
         return false;
       }
-      return filter == null || _rows.indexOfNode(directory.id) >= 0;
-    }
-    if (status != DirectoryLoadStatus.notLoaded &&
+    } else if (status != DirectoryLoadStatus.notLoaded &&
         status != DirectoryLoadStatus.failed) {
       return false;
     }
-    // A lazy directory has no children, so the filter shows it exactly when
-    // it matches itself.
-    return filter == null || filter.matches(directory);
+    // Under a filter, only a directory with a row (its own, or the compacted
+    // row it belongs to).
+    return _effectiveFilter == null || _rows.indexOfNode(directory.id) >= 0;
+  }
+
+  /// The directory that expanding the row of [target], a chain's deepest
+  /// directory, loads: the outermost directory of the compacted row that
+  /// [_loadsOnExpand] accepts (its listing lists the ones below it again),
+  /// else `null`. O(chain length).
+  DirectoryNode<T>? _loadOnExpand(DirectoryNode<T> target) {
+    var load = _loadsOnExpand(target) ? target : null;
+    var current = target;
+    while (true) {
+      final parentId = current.parent;
+      if (parentId == null) break;
+      final parent = _tree[parentId];
+      if (parent is! DirectoryNode<T> ||
+          !_continuesChain(parent) ||
+          (parent.isRoot && !_showRoots)) {
+        break;
+      }
+      if (_loadsOnExpand(parent)) load = parent;
+      current = parent;
+    }
+    return load;
   }
 
   /// Starts loading the top-level directories that are not loaded while

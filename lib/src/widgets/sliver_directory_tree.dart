@@ -673,7 +673,7 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         DirectoryTreeCheckboxMode.selection =>
           isSelected ? CheckState.checked : CheckState.unchecked,
       },
-      loadStatus: controller.loadStatusOf(id),
+      loadStatus: rowLoadStatus(controller, row),
       isExpandable: controller.isExpandable(id),
       matchRanges: matchRanges,
     );

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
+import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'controller_test_utils.dart';
@@ -203,14 +204,15 @@ void main() {
     });
 
     test('without revealMatches the effective state is kept as it is', () {
+      // The row a/b/c is closed, so breaking its chain opens nothing.
       final controller = DirectoryTreeController<int>(
         tree: matchTree(),
-        expansion: ExpansionState.withExpanded([r, c]),
+        expansion: ExpansionState.withExpanded([r]),
         compactFolders: true,
         query: 'm.txt',
         revealMatches: false,
       );
-      expect(labelsOf(controller.rows), ['r', 'a/b/c', 'm.txt']);
+      expect(labelsOf(controller.rows), ['r', 'a/b/c']);
       controller.updateTree((builder) => builder.addFile('/r/a/other.m.txt'));
       expect(labelsOf(controller.rows), ['r', 'a']);
       expectConsistentRows(controller);
@@ -352,6 +354,110 @@ void main() {
       await settle();
       expect(labelsOf(controller.rows), ['r', 'd/s', 'z.txt']);
       expectConsistentRows(controller);
+    });
+
+    group('refreshing a compacted row', () {
+      const aDir = NodeId('/r/a');
+      const bDir = NodeId('/r/a/b');
+
+      DirectoryTreeController<int> chained(
+        FakeLoader<int> loader, {
+        required List<NodeId> expanded,
+        String query = '',
+      }) => DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/a/b/x.txt'),
+          TreeEntry.file('/r/f.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded(expanded),
+        compactFolders: true,
+        query: query,
+        loadChildren: loader.call,
+        onLoadError: (_, _, _) {},
+      );
+
+      // A loader that lists one level returns a without its contents.
+      Future<void> refreshRoot(
+        DirectoryTreeController<int> controller,
+        FakeLoader<int> loader,
+      ) async {
+        unawaited(controller.reloadChildren(r));
+        await settle();
+        loader.complete(r, const [
+          TreeEntry.directory('/r/a'),
+          TreeEntry.file('/r/f.txt'),
+        ]);
+        await settle();
+      }
+
+      test('a closed row lists its first folder when it opens', () async {
+        final loader = FakeLoader<int>();
+        final controller = chained(loader, expanded: [r]);
+        expect(labelsOf(controller.rows), ['r', 'a/b', 'f.txt']);
+        await refreshRoot(controller, loader);
+        expect(loader.callsFor(aDir), isEmpty);
+        controller.toggleExpansion(bDir);
+        await settle();
+        expect(loader.callsFor(aDir), hasLength(1));
+      });
+
+      test(
+        'an open row shows and retries the load of its first folder',
+        () async {
+          final loader = FakeLoader<int>();
+          final controller = chained(loader, expanded: [r, bDir]);
+          expect(labelsOf(controller.rows), ['r', 'a/b', 'x.txt', 'f.txt']);
+          await refreshRoot(controller, loader);
+          TreeRow<int> row() => controller.rows[1];
+          expect(row().id, bDir);
+          expect(rowLoadStatus(controller, row()), DirectoryLoadStatus.loading);
+          loader.fail(aDir, 'offline');
+          await settle();
+          expect(rowLoadStatus(controller, row()), DirectoryLoadStatus.failed);
+          controller.expand(bDir);
+          await settle();
+          expect(loader.callsFor(aDir), hasLength(2));
+          expect(rowLoadStatus(controller, row()), DirectoryLoadStatus.loading);
+        },
+      );
+
+      test('a chain that breaks keeps its open row open', () {
+        final controller = chained(FakeLoader<int>(), expanded: [r, bDir]);
+        controller.updateTree((builder) => builder.addFile('/r/a/new.txt'));
+        expect(labelsOf(controller.rows), [
+          'r',
+          'a',
+          'b',
+          'x.txt',
+          'new.txt',
+          'f.txt',
+        ]);
+        expect(controller.expansion.isExpanded(aDir), isTrue);
+        expectConsistentRows(controller);
+      });
+
+      test('a new chain end loads while filtering', () async {
+        final loader = FakeLoader<int>();
+        const d = NodeId('/r/d');
+        const e = NodeId('/r/d/e');
+        final controller = DirectoryTreeController<int>(
+          tree: DirectoryTree<int>.build(const [
+            TreeEntry.directory('/r/d'),
+            TreeEntry.file('/r/z.txt'),
+          ]),
+          compactFolders: true,
+          query: 'd',
+          loadChildren: loader.call,
+        );
+        expect(labelsOf(controller.rows), ['r', 'd']);
+        controller.expand(d);
+        await settle();
+        loader.complete(d, const [TreeEntry.directory('/r/d/e')]);
+        await settle();
+        // The row d/e shows because d matches; e itself does not.
+        expect(labelsOf(controller.rows), ['r', 'd/e']);
+        expect(loader.callsFor(e), hasLength(1));
+      });
     });
 
     test('an anchor that outlived the selection moves to the chain end', () {
