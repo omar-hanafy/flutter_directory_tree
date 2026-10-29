@@ -1,3 +1,5 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
@@ -96,5 +98,34 @@ void main() {
       expect(details.details.isFocused, isTrue);
       expect(details.details.hasFocus, isTrue);
     });
+  });
+
+  testWidgets('the focused row is the only focused semantics node', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    final controller = expandedController();
+    addTearDown(controller.dispose);
+    final focusNode = FocusNode();
+    addTearDown(focusNode.dispose);
+    await tester.pumpWidget(
+      hostApp(
+        DirectoryTreeView<int>(controller: controller, focusNode: focusNode),
+        height: 400,
+      ),
+    );
+    focusNode.requestFocus();
+    await tester.pump();
+    expect(controller.focusedId, repo);
+    expect(
+      find.semantics.byPredicate(
+        (node) =>
+            node.getSemanticsData().flagsCollection.isFocused ==
+            Tristate.isTrue,
+      ),
+      findsOne,
+    );
+    expect(tester.getSemantics(rowOf(repo)), isSemantics(isFocused: true));
+    handle.dispose();
   });
 }

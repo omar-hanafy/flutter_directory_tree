@@ -9,6 +9,8 @@ import 'package:flutter_directory_tree/src/controller/tree_focus_move.dart';
 import 'package:flutter_directory_tree/src/keyboard/directory_tree_shortcuts.dart';
 import 'package:flutter_directory_tree/src/keyboard/tree_intents.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';
+// Imported only so documentation references resolve.
+import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 
 /// Keyboard control of a directory tree view: arrow-key navigation,
 /// selection and expansion keys, and type-ahead find, applied to a
@@ -78,7 +80,9 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// text field or a button in a custom row), has the focus, every key
 /// reaches that widget untouched: no shortcut fires and no character goes
 /// to the type-ahead search. Views request this node's focus when a row is
-/// clicked.
+/// clicked. The node adds no semantics of its own: screen readers follow
+/// the focused row, which [SliverDirectoryTree] marks as focused while
+/// this node has the focus.
 ///
 /// When the tree gains the focus (by Tab, [autofocus], or
 /// [FocusNode.requestFocus]) while the controller has no focused row, the
@@ -404,6 +408,11 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
         child: Focus(
           focusNode: _focusNode,
           autofocus: widget.autofocus,
+          // The focused row is the focused semantics node while the tree
+          // has the focus (gaining it focuses a row), so screen readers
+          // follow the keyboard cursor; a second focused node around the
+          // rows would compete with it.
+          includeSemantics: false,
           onKeyEvent: _handleKeyEvent,
           onFocusChange: _handleFocusChange,
           child: widget.child,
