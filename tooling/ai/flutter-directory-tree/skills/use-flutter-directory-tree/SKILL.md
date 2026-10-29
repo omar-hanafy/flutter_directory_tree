@@ -252,10 +252,10 @@ rows, and the loads below it keep running, until its listing arrives;
 then the listing replaces its contents in one change, and expansion,
 selection, checks, and focus stay with every node that still exists. A
 failed reload changes nothing below it (status `failed`; expanding
-retries). A new tree keeps unfinished refreshes: such folders are listed
-on their next expand, and an open one (also one a search hides) starts
-again at once. A compacted row shows
-the load status of every folder in it. The API reference has the full
+retries). After a new tree, a refresh that was still running starts
+again at once when its folder is open (also one a search hides), else on
+its next expand; a failed one waits for the next expand. A compacted row
+shows the load status of every folder in it. The API reference has the full
 reload rules.
 
 ```dart

@@ -728,7 +728,14 @@ void main() {
       expect(controller.loadStatusOf(a), DirectoryLoadStatus.loaded);
       expect(labels(), ['root', 'a', 'b.txt', 'y.txt']);
       final skill = _normalize(File('$_useSkill/SKILL.md').readAsStringSync());
-      expect(skill, contains('A new tree keeps unfinished refreshes'));
+      expect(
+        skill,
+        contains(
+          'After a new tree, a refresh that was still running starts again '
+          'at once when its folder is open',
+        ),
+      );
+      expect(skill, contains('a failed one waits for the next expand'));
       expect(
         _normalize(
           File('$_useSkill/references/api-quick-reference.md')
@@ -737,6 +744,43 @@ void main() {
         contains('completes with the load that starts again in its place'),
       );
     });
+
+    test(
+      'after a new tree, a failed refresh waits for the next expand',
+      () async {
+        var calls = 0;
+        var fail = false;
+        final controller = DirectoryTreeController<Object?>(
+          tree: DirectoryTree.fromPaths(['/root/']),
+          loadChildren: (directory) async {
+            calls++;
+            if (fail) throw StateError('offline');
+            return [TreeEntry.file('/root/a.txt')];
+          },
+        );
+        addTearDown(controller.dispose);
+        final root = controller.tree.roots.single;
+        controller.expand(root);
+        await controller.loadChildren(root);
+        fail = true;
+        await controller.reloadChildren(root);
+        expect(controller.loadStatusOf(root), DirectoryLoadStatus.failed);
+        expect(calls, 2);
+
+        fail = false;
+        controller.updateTree((builder) => builder.addFile('/root/b.txt'));
+        await pumpEventQueue();
+        expect(
+          calls,
+          2,
+          reason: 'a failed refresh does not start again at once',
+        );
+        controller.expand(root);
+        await controller.loadChildren(root);
+        expect(calls, 3);
+        expect(controller.loadStatusOf(root), DirectoryLoadStatus.loaded);
+      },
+    );
 
     test('while filtering, expand loads a folder without a row only when '
         'the filter would show it', () async {
