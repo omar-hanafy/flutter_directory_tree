@@ -598,31 +598,67 @@ void main() {
       expect(controller.rows.map((row) => row.label), ['bucket', 'notes.txt']);
     });
 
-    test('reloadChildren reloads a folder and reopens the open folders '
-        'below it', () async {
+    test('reloadChildren keeps the rows while it loads, keeps an open '
+        'subfolder of a one-level listing and lists it again, and keeps the '
+        'contents when it fails', () async {
+      var listings = 0;
+      var failRoot = false;
       final controller = DirectoryTreeController<Object?>(
         tree: DirectoryTree.fromPaths(['/root/']),
-        loadChildren: (directory) async => switch (directory.path.toString()) {
-          '/root' => [TreeEntry.directory('/root/a')],
-          '/root/a' => [TreeEntry.file('/root/a/b.txt')],
-          _ => const [],
+        // One level per listing; the second listing of a adds c.txt.
+        loadChildren: (directory) async {
+          switch (directory.path.toString()) {
+            case '/root':
+              if (failRoot) throw StateError('offline');
+              return [TreeEntry.directory('/root/a')];
+            case '/root/a':
+              listings++;
+              return [
+                TreeEntry.file('/root/a/b.txt'),
+                if (listings > 1) TreeEntry.file('/root/a/c.txt'),
+              ];
+          }
+          return const [];
         },
       );
       addTearDown(controller.dispose);
+      List<String> labels() => [for (final row in controller.rows) row.label];
       final root = controller.tree.roots.single;
       controller.expand(root);
       await controller.loadChildren(root);
       final a = controller.tree.idOf('/root/a')!;
       controller.expand(a);
       await controller.loadChildren(a);
-      expect(controller.rows.map((row) => row.label), ['root', 'a', 'b.txt']);
+      final b = controller.tree.idOf('/root/a/b.txt')!;
+      controller.select(b);
+      expect(labels(), ['root', 'a', 'b.txt']);
 
       final reload = controller.reloadChildren(root);
-      expect(controller.rows.map((row) => row.label), ['root']);
+      expect(labels(), ['root', 'a', 'b.txt']);
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.loading);
       await reload;
-      await controller.loadChildren(a);
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.loaded);
+      expect(labels(), ['root', 'a', 'b.txt']); // a listed empty, kept
       expect(controller.isExpanded(a), isTrue);
-      expect(controller.rows.map((row) => row.label), ['root', 'a', 'b.txt']);
+      expect(controller.loadStatusOf(a), DirectoryLoadStatus.loading);
+      await controller.loadChildren(a);
+      expect(labels(), ['root', 'a', 'b.txt', 'c.txt']);
+      expect(controller.isSelected(b), isTrue);
+      expect(controller.focusedId, b);
+
+      failRoot = true;
+      await controller.reloadChildren(root);
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.failed);
+      expect(labels(), ['root', 'a', 'b.txt', 'c.txt']);
+      failRoot = false;
+      controller
+        ..collapse(root)
+        ..expand(root);
+      await controller.loadChildren(root);
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.loaded);
+      final skill = _normalize(File('$_useSkill/SKILL.md').readAsStringSync());
+      expect(skill, contains('the folder keeps its rows while it loads'));
+      expect(skill, contains('A failed reload keeps the contents'));
     });
 
     test('lastRowsChange: previous is set while listeners run and null '

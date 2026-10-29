@@ -247,9 +247,12 @@ lie inside it). A folder without children loads the first time it opens.
 or `failed`; a failed load calls `onLoadError(directory, error,
 stackTrace)`, shows an error icon, and opening the folder again (or
 clicking the icon) retries. `await controller.loadChildren(id)` waits for
-a load; `reloadChildren(id)` is a refresh button: it drops the folder's
-contents and loads them again, and the open folders below it reopen as
-their contents come back. Assigning a new tree discards running loads,
+a load. `reloadChildren(id)` is a refresh button: the folder keeps its
+rows while it loads, then the listing replaces its contents in one change,
+and expansion, selection, checks, and focus stay with every node that
+still exists. A subfolder listed empty that had contents (a one-level
+loader) keeps them and is listed again, at once when open. A failed
+reload keeps the contents (status `failed`); expanding retries. Assigning a new tree discards running loads,
 and open folders whose load was discarded load again.
 
 ```dart
