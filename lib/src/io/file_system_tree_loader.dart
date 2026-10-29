@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show immutable;
 // Imported only so documentation references to the controller resolve.
 import 'package:flutter_directory_tree/src/controller/directory_loading.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
+import 'package:flutter_directory_tree/src/io/windows_ordinary_path.dart';
 
 /// Reads directory trees from the local file system one level at a time,
 /// for tree views that load folders when they are opened.
@@ -127,7 +128,11 @@ final class FileSystemTreeLoader {
   /// whose later loads resolve against the current directory of that
   /// moment. A relative path that climbs above its start, such as `..` or
   /// `../project`, is read through its absolute form instead, as
-  /// [DirectoryScanner.scanTree] does.
+  /// [DirectoryScanner.scanTree] does. A drive letter with a colon starts
+  /// an absolute tree path on every platform, so pass `C:\` for the root
+  /// of a drive (on Windows, `dart:io` reads `C:` alone as the current
+  /// directory of that drive, while the tree would call it `C:/`), and
+  /// `./c:` for a relative directory named `c:`.
   ///
   /// Entry paths are parsed by [TreeOptions.paths] with
   /// [PathPolicy.backslashIsSeparator] set to the host rule
@@ -207,8 +212,10 @@ final class FileSystemTreeLoader {
   /// children is expanded and merges the entries into its tree.
   ///
   /// It lists `directory.data.path`: the path `dart:io` reported for the
-  /// directory, or the one [loadTree] was given. A node without data, such
-  /// as an inferred directory, is listed at its tree path instead
+  /// directory, or for the directory [loadTree] read, the path it read
+  /// (the one it was given, or its absolute form for a path that climbs
+  /// above its start). A node without data, such as an inferred directory,
+  /// is listed at its tree path instead
   /// ([TreePath.toString], whose `/` separators `dart:io` accepts on
   /// Windows too). Each entry's path is the directory's tree path followed
   /// by `/` and the child's name, so the controller always accepts it as
@@ -267,7 +274,13 @@ final class FileSystemTreeLoader {
       onError: failures.add,
     ).scan(path);
     for (final failure in failures) {
-      if (links == null || !links.contains(failure.path)) throw failure;
+      // On Windows a link past MAX_PATH is resolved again through its
+      // extended-length form, and the error of that retry carries it.
+      var failed = failure.path;
+      if (failed != null && Platform.isWindows) {
+        failed = windowsOrdinaryPath(failed);
+      }
+      if (links == null || !links.contains(failed)) throw failure;
     }
     // The scanner lists the directory itself too, as the only entry with
     // exactly the scanned path; every child's path is longer.
