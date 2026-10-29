@@ -5,9 +5,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 /// Pumps the showcase app in a desktop-sized window (wide enough for the
 /// navigation rail) and resets the window when the test ends.
+///
+/// The window is tall enough to show every top-level row of the sample
+/// project: the test platform is Android, whose default rows are 48 pixels
+/// tall for touch, and rows that do not fit are never built.
 Future<void> pumpApp(
   WidgetTester tester, {
-  Size size = const Size(1280, 800),
+  Size size = const Size(1280, 1200),
 }) async {
   tester.view
     ..physicalSize = size
