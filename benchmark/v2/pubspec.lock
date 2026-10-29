@@ -42,11 +42,12 @@ packages:
     source: hosted
     version: "1.19.1"
   directory_tree:
-    dependency: "direct overridden"
+    dependency: transitive
     description:
-      path: "/Users/omarhanafy/Development/MyProjects/packages/directory_tree/directory_tree"
-      relative: false
-    source: path
+      name: directory_tree
+      sha256: "893be253fb24af827bb20f084ee7bbda16ba5d378b10a11228825569ae98d456"
+      url: "https://pub.dev"
+    source: hosted
     version: "2.0.0"
   fake_async:
     dependency: transitive

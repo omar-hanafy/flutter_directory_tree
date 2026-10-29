@@ -15,7 +15,7 @@ package with its own `pubspec.yaml`, `pubspec.lock`, and
 | `workloads/` | Pure Dart. The seeded path generator ported from directory_tree's benchmarks (same algorithm, seeds, and fingerprints), the operation catalog, the line protocol between the processes and the runner, and `WorkloadExpectations`, the counts every operation must report. |
 | `harness/` | Flutter. The `BenchSubject` interface, the driver (warm-up and timed runs, frame timing, JSON lines), and the two entry points: `defineJitBenchmark` (a widget test) and `runAotBenchmark` (an app that exits when it is done). |
 | `v1/` | Flutter app. The subject for `flutter_directory_tree: 1.0.0` and `directory_tree: 1.0.0` from pub.dev, exactly. `macos/` is the runner of the AOT build. |
-| `v2/` | Flutter app. The subject for the 2.0.0 code in this repository: `flutter_directory_tree` by path from the repository root, and directory_tree from its local checkout through `pubspec_overrides.yaml` until 2.0.0 is on pub.dev. `macos/` is the runner of the AOT build. See [The v2 subject](#the-v2-subject). |
+| `v2/` | Flutter app. The subject for the 2.0.0 code in this repository: `flutter_directory_tree` by path from the repository root, and directory_tree 2.0.0 from pub.dev. `macos/` is the runner of the AOT build. See [The v2 subject](#the-v2-subject). |
 | `runner/` | Pure Dart CLI. Runs every implementation in both modes, enforces the per-step time budget, merges the records into `results.jsonl`, and writes `RESULTS.md`. |
 | `RESULTS.md` | The latest report. |
 | `results.jsonl` | Every stored record, one JSON object per line (the source of `RESULTS.md`). |
@@ -211,11 +211,10 @@ A record looks like this (one line in `results.jsonl`):
 with `flutter create --empty --platforms=macos --project-name fdt_bench_v2
 --org com.example v2` and given v1's `MainFlutterWindow.swift` (the
 benchmark window settings) and `analysis_options.yaml`. Its `pubspec.yaml`
-depends on the repository root by path, and its `pubspec_overrides.yaml`
-repeats the root's, because the root's overrides do not apply to packages
-that depend on it (the release commit deletes it with the others). `v1/`
-must not get one: it resolves directory_tree 1.0.0 from pub.dev, and 1.0.0's
-code (`TreeBuilder`, `TreeData`, `VisibleNode`) does not exist in 2.0.0.
+depends on the repository root by path, which resolves directory_tree 2.0.0
+from pub.dev. `v1/` resolves directory_tree 1.0.0 from pub.dev, whose code
+(`TreeBuilder`, `TreeData`, `VisibleNode`) does not exist in 2.0.0, so the
+two subjects never share a lock file.
 
 `lib/v2_subject.dart` runs the operations through the public 2.0.0 API,
 from the same starting states as v1's subject:

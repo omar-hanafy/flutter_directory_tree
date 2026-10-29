@@ -16,8 +16,7 @@ dependencies:
     path: ../workloads
   flutter:
     sdk: flutter
-  # The code under test: this repository's root package. Its own
-  # pubspec_overrides.yaml does not apply here; see the one next to this file.
+  # The code under test: this repository's root package.
   flutter_directory_tree:
     path: ../..
 

@@ -42,8 +42,8 @@ package under `benchmark/`. "CI / Pana" requires a perfect score with a
 pinned pana version, so avoid changes that cost points (missing doc
 comments, dependency issues, format drift).
 
-During development `pubspec_overrides.yaml` files point `directory_tree` at
-a local checkout of the core. They are pub-ignored, and
+When a change needs an unreleased `directory_tree`, `pubspec_overrides.yaml`
+files point it at a local checkout of the core. They are pub-ignored, and
 `dart tool/check_repo.dart --release` fails while any of them exists, so
 `flutter pub publish --dry-run` reports them until the release commit
 deletes them. Never put a path dependency in `pubspec.yaml`.
@@ -121,8 +121,8 @@ run; fix the code, or add an `// ignore:` whose comment says why.
 ## Release process
 
 1. The version bump lands through a pull request to `main`. Branch
-   protection requires "CI / Test on stable", "CI / Pana", and
-   "pub-dry-run / dry-run"; there are no direct pushes.
+   protection requires "CI / Test on stable", "CI / Test on minimum SDK",
+   "CI / Pana", and "pub-dry-run / dry-run"; there are no direct pushes.
 2. The `CHANGELOG.md` entry and the `pubspec.yaml` version change in the
    same pull request. The first CHANGELOG heading must be the pubspec
    version (`tool/check_repo.dart` checks it).
