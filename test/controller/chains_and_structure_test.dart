@@ -182,6 +182,24 @@ void main() {
       expectConsistentRows(controller);
     });
 
+    test('a folder shown only for its own name opens for a new match', () {
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/src/readme.txt'),
+          TreeEntry.file('/r/other.txt'),
+        ]),
+        query: 'src',
+      );
+      // src matches, but nothing inside it does, so the search left it
+      // closed.
+      expect(labelsOf(controller.rows), ['r', 'src']);
+      controller.updateTree(
+        (builder) => builder.addFile('/r/src/src_util.dart'),
+      );
+      expect(labelsOf(controller.rows), ['r', 'src', 'src_util.dart']);
+      expectConsistentRows(controller);
+    });
+
     test('without revealMatches the effective state is kept as it is', () {
       final controller = DirectoryTreeController<int>(
         tree: matchTree(),
@@ -293,6 +311,22 @@ void main() {
       expect(controller.isSelected(controller.rows[1].id), isTrue);
     });
 
+    test('an anchor that outlived the selection moves to the chain end', () {
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/a/b/c/file.txt'),
+          TreeEntry.file('/r/other.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded([r]),
+      )..toggleSelected(a);
+      // Toggling the only selected folder again keeps it as the anchor.
+      controller.toggleSelected(a);
+      expect(controller.selection.selected, isEmpty);
+      expect(controller.selection.anchor, a);
+      controller.compactFolders = true;
+      expect(controller.selection.anchor, c);
+    });
+
     test('a tree swap that puts a selected folder in a chain', () {
       final controller = DirectoryTreeController<int>(
         tree: DirectoryTree<int>.build(const [
@@ -316,6 +350,55 @@ void main() {
       expect(controller.selection.selected, {c});
       expect(controller.reveal(a), isTrue);
       expect(controller.isSelected(controller.focusedId!), isTrue);
+    });
+
+    test('reveal selects the chain end of a member the filter hides', () {
+      final controller = compactedController()..query = 'other';
+      expect(labelsOf(controller.rows), ['r', 'other.txt']);
+      expect(controller.reveal(a, select: true), isFalse);
+      expect(controller.selection.selected, {c});
+      controller.query = '';
+      expect(labelsOf(controller.rows), ['r', 'a/b/c', 'other.txt']);
+      expect(controller.isSelected(controller.rows[1].id), isTrue);
+    });
+
+    test('a selection given to the constructor selects chain ends', () {
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/a/b/c/file.txt'),
+          TreeEntry.file('/r/other.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded([r]),
+        compactFolders: true,
+        selection: SelectionState(
+          mode: SelectionMode.multiple,
+          selected: const [a, otherTxt],
+          anchor: a,
+        ),
+      );
+      expect(controller.selection.selected, {c, otherTxt});
+      expect(controller.selection.anchor, c);
+      expect(controller.isSelected(controller.rows[1].id), isTrue);
+      // A refresh that changes nothing about the chain keeps the selection.
+      final selection = controller.selection;
+      controller.updateTree((builder) => builder.addFile('/r/new.txt'));
+      expect(controller.selection, selection);
+    });
+
+    test('setting the selection selects chain ends', () {
+      final controller = compactedController();
+      var notifications = 0;
+      controller
+        ..addListener(() => notifications++)
+        ..selection = SelectionState(
+          mode: SelectionMode.multiple,
+          selected: const [b],
+          anchor: b,
+        );
+      expect(controller.selection.selected, {c});
+      expect(controller.selection.anchor, c);
+      expect(notifications, 1);
+      expect(controller.isSelected(controller.rows[1].id), isTrue);
     });
 
     test('toggleExpansion without a row flips the chain end', () {

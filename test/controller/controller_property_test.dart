@@ -848,6 +848,29 @@ final class _Run {
         expect(predicate(tree[id]!), isTrue, reason: '$reason (selectable)');
       }
     }
+    // With compact folders a selected directory is the id of its row: never
+    // one that continues a chain, unless its chain's deepest directory is
+    // not selectable.
+    if (controller.compactFolders) {
+      final selection = controller.selection;
+      for (final id in [...selection.selected, ?selection.anchor]) {
+        final node = tree[id];
+        if (node is! DirectoryNode<int>) continue;
+        if (!controller.showRoots && node.isRoot) continue;
+        var end = node;
+        while (end.children.length == 1) {
+          final child = tree[end.children.first];
+          if (child is! DirectoryNode<int>) break;
+          end = child;
+        }
+        if (identical(end, node)) continue;
+        expect(
+          controller.isSelectable(end.id),
+          isFalse,
+          reason: '$reason (chain member $id selected)',
+        );
+      }
+    }
 
     // lastRowsChange describes the actual difference.
     if (identical(rows, before.rows)) {

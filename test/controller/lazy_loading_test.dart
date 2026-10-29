@@ -595,6 +595,63 @@ void main() {
       expect(loader.callsFor(sub), isEmpty);
     });
 
+    group('while filtering', () {
+      const d = NodeId('/r/d');
+      const s = NodeId('/r/d/s');
+      const t = NodeId('/r/d/t');
+      // The loader returns the whole subtree of d, which the loader
+      // contract allows.
+      const reloaded = [
+        TreeEntry<String>.file('/r/d/s/m.dart'),
+        TreeEntry<String>.file('/r/d/t/m2.dart'),
+      ];
+
+      DirectoryTreeController<String> searched(FakeLoader<String> loader) =>
+          DirectoryTreeController<String>(
+            tree: DirectoryTree<String>.build(const [
+              TreeEntry.file('/r/d/s/m.dart'),
+              TreeEntry.file('/r/d/t/m2.dart'),
+              TreeEntry.file('/r/z.txt'),
+            ]),
+            query: 'dart',
+            loadChildren: loader.call,
+          );
+
+      test('a folder collapsed during the search stays collapsed', () async {
+        final loader = FakeLoader<String>();
+        final controller = searched(loader)..collapse(s);
+        expect(labelsOf(controller.rows), ['r', 'd', 's', 't', 'm2.dart']);
+        unawaited(controller.reloadChildren(d));
+        await settle();
+        loader.complete(d, reloaded);
+        await settle();
+        expect(controller.isExpanded(s), isFalse);
+        expect(controller.isExpanded(t), isTrue);
+        expect(labelsOf(controller.rows), ['r', 'd', 's', 't', 'm2.dart']);
+        expectConsistentRows(controller);
+      });
+
+      test('a new search reveals the folder again', () async {
+        final loader = FakeLoader<String>();
+        final controller = searched(loader)..collapse(s);
+        unawaited(controller.reloadChildren(d));
+        await settle();
+        controller.query = 'm';
+        loader.complete(d, reloaded);
+        await settle();
+        expect(controller.isExpanded(s), isTrue);
+        expect(labelsOf(controller.rows), [
+          'r',
+          'd',
+          's',
+          'm.dart',
+          't',
+          'm2.dart',
+        ]);
+        expectConsistentRows(controller);
+      });
+    });
+
     test('keeps the check state of the directory', () async {
       final loader = FakeLoader<String>();
       final tree = DirectoryTree<String>.build(const [

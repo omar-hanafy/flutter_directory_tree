@@ -49,8 +49,9 @@ import 'package:flutter_directory_tree/src/controller/tree_rows_change.dart';
 /// object; [lastRowsChange] tells a list view which block of rows changed.
 ///
 /// There are two expansion states. [expansion] is the requested one: what
-/// the user and the app asked for, which never contains the directories a
-/// search opened, so it is the one to persist. `rows.expansion` is the
+/// the user and the app asked for, so it is the one to persist. It holds
+/// none of the directories a search opened, except the ancestors of the
+/// focused node that clearing a search keeps open. `rows.expansion` is the
 /// effective one on screen: the same as [expansion] when nothing is
 /// filtered, and [expansion] plus the ancestors of the matches after a
 /// filter change. Every expansion command changes both states the same way.
@@ -59,8 +60,9 @@ import 'package:flutter_directory_tree/src/controller/tree_rows_change.dart';
 ///
 /// [query] (parsed as a [TreeQuery]) and [filter] together form the
 /// effective filter. Each change of it shows the matches on top of
-/// [expansion] (see [revealMatches]); clearing it shows [expansion] again
-/// with the focused node revealed.
+/// [expansion] (see [revealMatches]). Clearing it shows [expansion] again,
+/// with the ancestors of the focused node opened in it, so the focused row
+/// stays visible.
 ///
 /// ## Lazy loading
 ///
@@ -70,11 +72,13 @@ import 'package:flutter_directory_tree/src/controller/tree_rows_change.dart';
 ///
 /// ## Complexity
 ///
-/// Focus moves and single selection changes cost O(log rows). Single
-/// expansion toggles cost O(log rows + rows that appear or disappear) and
-/// never call the filter. Full passes over the tree happen only on a new
-/// [tree], filter changes, [compactFolders] and [showRoots] changes, and
-/// bulk commands such as [expandAll], [selectAll], and [checkAll].
+/// Focus moves and [select] cost O(log rows); [toggleSelected] adds the
+/// size of the selection. Single expansion toggles cost O(log rows + rows
+/// that appear or disappear), plus copying the row list and the expansion
+/// states, and never call the filter. Full passes over the tree happen
+/// only on a new [tree], filter changes, [compactFolders] and [showRoots]
+/// changes, and bulk commands such as [expandAll], [selectAll], and
+/// [checkAll].
 class DirectoryTreeController<T> extends ChangeNotifier {
   /// Creates a controller for [tree] (an empty tree when `null`).
   ///
@@ -83,7 +87,8 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///   rows show it plus the ancestors of the matches.
   /// * [selection] and [checks] are the initial highlight selection and
   ///   checkbox state, both in [SelectionMode.multiple] by default. Ids that
-  ///   [tree] does not contain are dropped.
+  ///   [tree] does not contain are dropped, and the selection keeps
+  ///   directories inside a compacted chain as [selection] says.
   /// * `selectable` decides which nodes the selection commands may select;
   ///   every node by default. It does not affect [checks]. It must be pure
   ///   and cheap, since [selectAll] and [extendSelection] call it per row.
@@ -134,6 +139,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       expandMatches: _effectiveFilter != null && revealMatches,
     );
     _lastRowsChange = const TreeRowsChange.reset(previous: null);
+    _selectChainEnds();
     _loadHiddenRoots();
     // Nobody listens yet, so the statuses set above need no notification.
     _dirty = false;
@@ -178,9 +184,10 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   // ancestor, and dispose drop entries, which discards those loads.
   final Map<NodeId, _PendingLoad> _loads = <NodeId, _PendingLoad>{};
 
-  // Directories that were expanded below a directory being reloaded, with
-  // the states that expanded them: each opens again when a load brings it
-  // back. A new tree clears it.
+  // Directories below a directory being reloaded, with their states: each
+  // opens again in the states that were expanded when a load brings it
+  // back, and one closed during the search (both false) stays closed. A
+  // new tree clears it; a filter change keeps only the requested states.
   final Map<NodeId, ({bool requested, bool effective})> _reopen =
       <NodeId, ({bool requested, bool effective})>{};
 
@@ -226,11 +233,13 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///   without children and it is expanded, so it never stays open and
   ///   empty. With a loader and [showRoots] false, top-level directories
   ///   without children start loading.
-  /// * While filtering with [revealMatches], the matches stay revealed:
-  ///   directories keep their effective state, and the ancestors of matches
-  ///   whose state no row showed before (new directories, and directories
-  ///   that stopped continuing a compacted chain) expand in the effective
-  ///   state. A folder the user collapsed during the search stays collapsed.
+  /// * While filtering with [revealMatches], the matches stay revealed. A
+  ///   directory that held a match keeps its effective state, so a folder
+  ///   the user collapsed during the search stays collapsed, also inside a
+  ///   collapsed parent. The other ancestors of matches expand in the
+  ///   effective state: new directories, directories that held no match
+  ///   before (also one shown only because its own name matched), and
+  ///   directories that stopped continuing a compacted chain.
   /// * [rows] are flattened again and [lastRowsChange] is a reset.
   ///
   /// Listeners are notified once. Runs in O(rows) plus the size of the
@@ -498,8 +507,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     if (_rows.indexOfNode(id) < 0) _revealRow(id);
     final index = _rows.indexOfNode(id);
     if (select) {
-      // Inside a compacted row the row's directory is the one selected.
-      final target = index >= 0 ? _rows[index].id : id;
+      // Inside a compacted chain the chain's deepest directory is the one
+      // selected, with or without a row.
+      final target = _selectionTarget(id);
       if (isSelectable(target)) _setSelection(_selection.select(target));
     }
     if (index >= 0) {
@@ -557,13 +567,18 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///
   /// It may hold nodes that have no row (inside collapsed directories or
   /// hidden by the filter); they stay selected. Setting it drops the ids
-  /// the tree does not contain (see [SelectionState.prune]) and notifies
-  /// when the result differs. The constructor's `selectable` predicate is
-  /// not applied to a set value.
+  /// the tree does not contain (see [SelectionState.prune]) and, with
+  /// [compactFolders], stores a directory inside a compacted chain (and
+  /// the anchor) as the chain's deepest directory, the id of its row, as
+  /// the selection commands do; it notifies when the result differs. The
+  /// constructor's `selectable` predicate is not applied to a set value,
+  /// except that a chain member stays as it is when the predicate rejects
+  /// its chain's deepest directory.
   SelectionState get selection => _selection;
 
   set selection(SelectionState value) {
     _setSelection(value.prune(_tree));
+    _selectChainEnds();
     _commit();
   }
 
@@ -1188,11 +1203,13 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// so its reloaded leaves come back checked. Directories below it that
   /// were expanded open again, in the same expansion states, when a load
   /// brings them back, and load in turn when they come back without
-  /// children, so a refresh keeps the open folders open; a new [tree] ends
-  /// this. Then a load starts as in [loadChildren], in the same
-  /// notification. Returns the running load's future when a load of [id]
-  /// is in progress already. Completes right away without a loader, for
-  /// files, unknown ids, and after [dispose].
+  /// children, so a refresh keeps the open folders open; while filtering,
+  /// a folder the user collapsed during the search stays collapsed when it
+  /// comes back. A new [tree] ends this, and a change of the effective
+  /// filter keeps only the requested states. Then a load starts as in
+  /// [loadChildren], in the same notification. Returns the running load's
+  /// future when a load of [id] is in progress already. Completes right
+  /// away without a loader, for files, unknown ids, and after [dispose].
   Future<void> reloadChildren(NodeId id) {
     if (_loader == null || _disposed) return Future<void>.value();
     final pending = _loads[id];
@@ -1205,6 +1222,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       final wasChecked = _checkStateAt(id, start) == CheckState.checked;
       final nodes = previousTree.nodes;
       final effective = _rows.expansion;
+      final searching = _effectiveFilter != null && _revealMatches;
+      // The rows with every directory open, built on the first need.
+      TreeRows<T>? passed;
       for (var i = start + previousTree.subtreeSizeOf(id) - 1; i > start; i--) {
         final below = nodes[i];
         if (below is! DirectoryNode<T>) continue;
@@ -1212,6 +1232,13 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         final shown = effective.isExpanded(below.id);
         if (requested || shown) {
           _reopen[below.id] = (requested: requested, effective: shown);
+        } else if (searching) {
+          // A folder closed during the search that held a match stays
+          // closed when it comes back, as across other tree changes.
+          passed ??= _rows.withExpansion(const ExpansionState.expanded());
+          if (_heldMatch(passed, below.id)) {
+            _reopen[below.id] = (requested: false, effective: false);
+          }
         }
       }
       _loads.removeWhere((other, _) => previousTree.isAncestor(id, other));
@@ -1562,14 +1589,20 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// While filtering with [revealMatches], the ancestors of matches whose
   /// state [previous] never consulted expand, so the matches stay visible:
   /// new directories, directories that continued a compacted chain or were
-  /// hidden roots, and directories the previous filter hid (they held no
-  /// match). Every directory whose state [previous] consulted keeps its
-  /// state from [effective], with or without a row of its own, so a folder
-  /// the user collapsed during the search stays collapsed, also inside a
-  /// collapsed parent. O(n) with a filter (one flatten, plus up to two
-  /// passes over the nodes when matches were revealed, which never call
-  /// the filter), O(rows) without.
-  TreeRows<T> _restructured(TreeRows<T> previous, ExpansionState effective) {
+  /// hidden roots, and directories that held no match in [previous]
+  /// (hidden by its filter, or shown only because their own name matched).
+  /// Every directory that held a match in [previous] keeps its state from
+  /// [effective], with or without a row of its own, so a folder the user
+  /// collapsed during the search stays collapsed, also inside a collapsed
+  /// parent; so do the directories in [collapsed] (closed during the
+  /// search before a reload removed them). O(n) with a filter (one
+  /// flatten, plus up to two passes over the nodes when matches were
+  /// revealed, which never call the filter), O(rows) without.
+  TreeRows<T> _restructured(
+    TreeRows<T> previous,
+    ExpansionState effective, {
+    Set<NodeId>? collapsed,
+  }) {
     if (_effectiveFilter == null || !_revealMatches) {
       return _flatten(effective, expandMatches: false);
     }
@@ -1586,6 +1619,10 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       if (node is! DirectoryNode<T>) continue;
       final id = node.id;
       if (!opened.isExpanded(id) || effective.isExpanded(id)) continue;
+      if (collapsed != null && collapsed.contains(id)) {
+        (kept ??= <NodeId>[]).add(id);
+        continue;
+      }
       final before = previousTree[id];
       if (before is! DirectoryNode<T>) continue;
       if (!previous.showRoots && before.isRoot) continue;
@@ -1595,12 +1632,24 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         continue;
       }
       passed ??= previous.withExpansion(const ExpansionState.expanded());
-      if (passed.indexOfNode(id) < 0) continue;
+      // Only a directory that held a match was one the search opened, so
+      // only then is its collapsed state a choice to keep.
+      if (!_heldMatch(passed, id)) continue;
       (kept ??= <NodeId>[]).add(id);
     }
     return kept == null
         ? revealed
         : revealed.withExpansion(opened.collapseAll(kept));
+  }
+
+  /// Whether the directory [id] has its own row in [passed] (rows with
+  /// every directory expanded) and a child row there: under the filter of
+  /// [passed], a match inside it. O(depth).
+  static bool _heldMatch(TreeRows<Object?> passed, NodeId id) {
+    final index = passed.indexOfNode(id);
+    if (index < 0) return false;
+    final row = passed[index];
+    return row.id == id && row.hasChildren;
   }
 
   /// Applies [transform] to both expansion states and recomputes the rows
@@ -1675,7 +1724,10 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// O(selection size x chain length).
   void _selectChainEnds() {
     final selection = _selection;
-    if (!_compactFolders || selection.isEmpty) return;
+    // An anchor can outlive the selection (a toggle that deselected it).
+    if (!_compactFolders || (selection.isEmpty && selection.anchor == null)) {
+      return;
+    }
     NodeId moved(NodeId id) {
       final target = _selectionTarget(id);
       return target == id || !isSelectable(target) ? id : target;
@@ -1753,6 +1805,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// effective filter: with the matches revealed while filtering, else with
   /// the focused node revealed.
   void _refilter() {
+    // The effective state starts over from the requested one, so what a
+    // pending reload recorded of the old effective state no longer holds.
+    _reopen
+      ..removeWhere((_, state) => !state.requested)
+      ..updateAll((_, _) => (requested: true, effective: true));
     final previous = _rows;
     if (_effectiveFilter != null) {
       _setRows(
@@ -1787,11 +1844,14 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// are kept and the change is the splice between the old and new rows.
   ///
   /// [open] lists directories of [next] to expand after pruning, in the
-  /// requested and in the effective state (a lazy merge reopens them).
+  /// requested and in the effective state (a lazy merge reopens them), and
+  /// the directories a search must not open again (`collapsed`, see
+  /// [_restructured]).
   void _applyTree(
     DirectoryTree<T> next, {
     required bool discardLoads,
-    ({Set<NodeId> requested, Set<NodeId> effective})? open,
+    ({Set<NodeId> requested, Set<NodeId> effective, Set<NodeId> collapsed})?
+    open,
   }) {
     final previousTree = _tree;
     final previousRows = _rows;
@@ -1824,7 +1884,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       _loadErrors.removeWhere((id, _) => !next.contains(id));
       _loads.removeWhere((id, _) => !next.contains(id));
     }
-    final rows = _restructured(previousRows, effective);
+    final rows = _restructured(
+      previousRows,
+      effective,
+      collapsed: open?.collapsed,
+    );
     _setRows(
       rows,
       discardLoads
@@ -2053,7 +2117,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         final next = tree.rebuild((builder) => builder.addAll(accepted));
         final requested = <NodeId>{};
         final effective = <NodeId>{};
-        // Directories that were open before a reload open again.
+        final collapsed = <NodeId>{};
+        // Directories that were open before a reload open again; the ones
+        // closed during the search stay closed.
         final start = next.indexOf(id);
         final end = start + next.subtreeSizeOf(id);
         final nodes = next.nodes;
@@ -2062,7 +2128,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
           final state = _reopen.remove(below);
           if (state == null) continue;
           if (state.requested) requested.add(below);
-          if (state.effective) effective.add(below);
+          if (state.effective) {
+            effective.add(below);
+          } else {
+            collapsed.add(below);
+          }
           opened.add(below);
         }
         // A directory whose only child is now a directory shares its row
@@ -2087,7 +2157,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         _applyTree(
           next,
           discardLoads: false,
-          open: (requested: requested, effective: effective),
+          open: (
+            requested: requested,
+            effective: effective,
+            collapsed: collapsed,
+          ),
         );
       }
       _statusOverrides[id] = DirectoryLoadStatus.loaded;
