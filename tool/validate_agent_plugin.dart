@@ -30,8 +30,8 @@
 ///   that string (so numbers, booleans, nulls, and dates must be quoted);
 ///   size limits (`description` 1024 characters, `compatibility` 500);
 ///   self-contained skill links (inline links, images, and reference-style
-///   definitions, also inside block quotes and list items, all outside code,
-///   failing closed where the reading could differ from CommonMark;
+///   definitions, also inside block quotes and list items, all outside code;
+///   the reading fails closed, so text it cannot place is checked as prose;
 ///   footnotes are not links); and no machine-specific or secret-looking
 ///   content in any plugin file;
 /// - every eval case has a prompt and graders, and its skill graders name
@@ -826,40 +826,47 @@ void _checkSkillLinks(String skillDir, String mdPath, String content) {
 
 /// [markdown] without code, so brackets in code are never read as links.
 ///
-/// Fenced blocks are dropped: a fence closes only with a fence of the same
-/// character at least as long as the opening one, or at the end of the
-/// file, and no fence opens inside an HTML block (a comment until `-->`,
-/// `script`, `pre`, `style`, or `textarea` until its closing tag, any
-/// other tag line until a blank line). Code spans become a placeholder: a
-/// run of backticks opens a span (an escaped first backtick is text) that
-/// the next run of the same length closes within the same block, where a
-/// blank line, a heading, a list item, a block quote, a table row, or an
-/// HTML line starts a new block. Where this reading and CommonMark could
-/// differ, it keeps text to check rather than dropping it, so the check
-/// fails closed.
+/// The reading fails closed: wherever it could differ from CommonMark, it
+/// keeps text to check rather than dropping it, so a live link is never
+/// skipped (a link-like text in code may be reported instead; the failure
+/// names the line). Fenced blocks are dropped: a fence closes with a fence
+/// of the same character at least as long as the opening one, at the end of
+/// the file, or, for a fence indented like list item content, at the first
+/// non-blank line indented less than its opening line (the item ended). No
+/// fence opens inside an HTML block (a comment until `-->`, `script`, `pre`,
+/// `style`, or `textarea` until its closing tag, any other tag line until a
+/// blank line). Code spans become a placeholder only within one line: a run
+/// of backticks (an escaped first backtick is text) pairs with the next run
+/// of the same length on the same line, so a span never swallows text on
+/// another line.
 String _withoutCode(String markdown) {
-  final blocks = <List<String>>[[]];
+  final kept = <String>[];
   String? fence;
+  var fenceIndent = 0;
   RegExp? htmlEnd;
-  final blockStart = RegExp(
-    r'^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*](?:[ \t]|$)|[0-9]{1,9}[.)](?:[ \t]|$)'
-    r'|\||<)',
-  );
+  int indentOf(String line) => line.length - line.trimLeft().length;
   for (final line in const LineSplitter().convert(markdown)) {
     if (fence != null) {
-      final marker = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$')
+      final indent = indentOf(line);
+      final marker = RegExp(r'^[ \t]*(`{3,}|~{3,})[ \t]*$')
           .firstMatch(line)
           ?.group(1);
       if (marker != null &&
+          indent <= fenceIndent + 3 &&
           marker[0] == fence[0] &&
           marker.length >= fence.length) {
         fence = null;
+        continue;
       }
-      continue;
+      if (line.trim().isEmpty || indent >= fenceIndent || fenceIndent == 0) {
+        continue;
+      }
+      // A less indented line ends the list item, and the fence with it.
+      fence = null;
     }
     if (htmlEnd != null) {
       if (htmlEnd.hasMatch(line)) htmlEnd = null;
-      blocks.last.add(line);
+      kept.add(line);
       continue;
     }
     if (RegExp(r'^ {0,3}<!--').hasMatch(line)) {
@@ -868,41 +875,40 @@ String _withoutCode(String markdown) {
       r'^ {0,3}<(script|pre|style|textarea)\b',
       caseSensitive: false,
     ).hasMatch(line)) {
-      if (!RegExp(
+      final close = RegExp(
         r'</(script|pre|style|textarea)>',
         caseSensitive: false,
-      ).hasMatch(line)) {
-        htmlEnd = RegExp(
-          r'</(script|pre|style|textarea)>',
-          caseSensitive: false,
-        );
-      }
+      );
+      if (!close.hasMatch(line)) htmlEnd = close;
     } else if (RegExp(r'^ {0,3}<[/!?A-Za-z]').hasMatch(line)) {
       htmlEnd = RegExp(r'^[ \t]*$');
     } else {
-      final marker = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line)?.group(1);
+      // A fence opener at the start of a line, or as list item content
+      // (after a marker or indented under one).
+      final match = RegExp(
+        r'^((?:[ \t]*(?:[-+*]|[0-9]{1,9}[.)])[ \t]+)*[ \t]*)(`{3,}|~{3,})',
+      ).firstMatch(line);
+      final marker = match?.group(2);
       // An info string after backticks may not contain a backtick.
       if (marker != null &&
-          !(marker[0] == '`' &&
-              line.contains('`', line.indexOf(marker) + marker.length))) {
+          !(marker[0] == '`' && line.contains('`', match!.end))) {
         fence = marker;
-        blocks.add([]);
+        fenceIndent = match!.group(1)!.length;
         continue;
       }
     }
-    if (line.trim().isEmpty || blockStart.hasMatch(line)) blocks.add([]);
-    blocks.last.add(line);
+    kept.add(line);
   }
-  return blocks.map((block) => _withoutCodeSpans(block.join('\n'))).join('\n');
+  return kept.map(_withoutCodeSpans).join('\n');
 }
 
-/// [block] with each code span replaced by `code`: a run of n backticks
+/// [line] with each code span replaced by `code`: a run of n backticks
 /// opens a span that the next run of exactly n backticks closes; a run
 /// with no partner stays as text, and a backslash before a run makes its
 /// first backtick text.
-String _withoutCodeSpans(String block) {
+String _withoutCodeSpans(String line) {
   final runs = <({int start, int end})>[
-    for (final match in RegExp('`+').allMatches(block))
+    for (final match in RegExp('`+').allMatches(line))
       (start: match.start, end: match.end),
   ];
   final out = StringBuffer();
@@ -910,7 +916,7 @@ String _withoutCodeSpans(String block) {
   var i = 0;
   while (i < runs.length) {
     var open = runs[i];
-    if (_escaped(block, open.start)) {
+    if (_escaped(line, open.start)) {
       open = (start: open.start + 1, end: open.end);
       if (open.start == open.end) {
         i++;
@@ -927,12 +933,12 @@ String _withoutCodeSpans(String block) {
       continue;
     }
     out
-      ..write(block.substring(copied, open.start))
+      ..write(line.substring(copied, open.start))
       ..write('code');
     copied = runs[close].end;
     i = close + 1;
   }
-  out.write(block.substring(copied));
+  out.write(line.substring(copied));
   return out.toString();
 }
 
