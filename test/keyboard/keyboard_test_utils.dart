@@ -371,3 +371,14 @@ final class Notifications {
 
   void dispose() => controller.removeListener(_count);
 }
+
+/// Clears the keyboard cursor while the tree keeps the keyboard focus.
+///
+/// A tree that gains the focus without a focused row focuses one, so tests
+/// of the "nothing focused" state clear it afterwards.
+Future<void> clearRowFocus(WidgetTester tester, KeyboardHarness h) async {
+  h.controller.focus(null);
+  await tester.pump();
+  expect(h.controller.focusedId, isNull);
+  expect(h.treeFocus.hasPrimaryFocus, isTrue);
+}

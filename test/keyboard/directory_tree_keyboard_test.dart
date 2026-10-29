@@ -708,6 +708,7 @@ void main() {
       tester,
     ) async {
       final h = await pumpKeyboard(tester);
+      await clearRowFocus(tester, h);
       final notifications = Notifications(h.controller);
       addTearDown(notifications.dispose);
       expect(await press(tester, LogicalKeyboardKey.arrowRight), isTrue);
@@ -912,7 +913,7 @@ void main() {
           ),
         },
       );
-      expect(h.controller.focusedId, isNull);
+      await clearRowFocus(tester, h);
       await press(tester, LogicalKeyboardKey.enter);
       expect(activations, 1);
     });
@@ -979,6 +980,7 @@ void main() {
       tester,
     ) async {
       final h = await pumpKeyboard(tester);
+      await clearRowFocus(tester, h);
       expect(await press(tester, LogicalKeyboardKey.space), isFalse);
       expect(h.controller.selection.isEmpty, isTrue);
     });
@@ -1033,6 +1035,7 @@ void main() {
       tester,
     ) async {
       final h = await pumpKeyboard(tester);
+      await clearRowFocus(tester, h);
       await press(tester, LogicalKeyboardKey.arrowDown);
       expect(h.controller.focusedId, r);
       expect(h.selectedIds, [r]);
@@ -1042,6 +1045,7 @@ void main() {
       tester,
     ) async {
       final h = await pumpKeyboard(tester);
+      await clearRowFocus(tester, h);
       await press(tester, LogicalKeyboardKey.arrowUp);
       expect(h.controller.focusedId, readme);
     });
@@ -1104,6 +1108,7 @@ void main() {
 
     testWidgets('* with nothing focused is not consumed', (tester) async {
       final h = await pumpKeyboard(tester);
+      await clearRowFocus(tester, h);
       expect(await typeAsterisk(tester), isFalse);
       expect(h.controller.isExpanded(alpha), isFalse);
     });
@@ -1453,7 +1458,8 @@ void main() {
       next.select(alpha);
       await press(tester, LogicalKeyboardKey.arrowDown);
       expect(next.focusedId, beta);
-      expect(h.controller.focusedId, isNull);
+      // The old controller keeps the row the tree gave it on focus.
+      expect(h.controller.focusedId, r);
     });
 
     testWidgets('custom shortcuts replace the defaults', (tester) async {

@@ -96,8 +96,12 @@ void main() {
       ),
     );
     await tester.pump();
-    await press(tester, LogicalKeyboardKey.arrowDown);
+    // The tree took the focus and, with no focused row, focused the first
+    // row without selecting it; the arrows move on from there.
     expect(controller.focusedId, repo);
+    expect(controller.selection.isEmpty, isTrue);
+    await press(tester, LogicalKeyboardKey.arrowDown);
+    expect(controller.focusedId, lib);
   });
 
   testWidgets('parts can be hidden or replaced', (tester) async {

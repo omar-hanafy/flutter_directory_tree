@@ -34,6 +34,8 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// * [MoveTreeFocusIntent]: [DirectoryTreeController.moveFocus].
 /// * [ExpandTreeNodeIntent]: expand, or move into an expanded row.
 /// * [CollapseTreeNodeIntent]: collapse, or move to the parent row.
+///   With [selectionFollowsFocus] (the default) these focus moves select
+///   the row they reach; without it they only move the focus.
 /// * [ExpandTreeSubtreeIntent]: [DirectoryTreeController.expandSubtree].
 /// * [ActivateTreeNodeIntent]: a directory toggles, then [onActivate] runs.
 /// * [ToggleTreeSelectionIntent]: the focused row's check or selection
@@ -78,12 +80,27 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// to the type-ahead search. Views request this node's focus when a row is
 /// clicked.
 ///
+/// When the tree gains the focus (by Tab, [autofocus], or
+/// [FocusNode.requestFocus]) while the controller has no focused row, the
+/// keyboard cursor goes to the first selected row of
+/// [DirectoryTreeController.rows], or to the first row when no row is
+/// selected, as the WAI-ARIA tree pattern describes. This only focuses the
+/// row with [DirectoryTreeController.focus], which scrolls it into view;
+/// the selection does not change. A click focuses its row before the tree
+/// gains the focus, so a click never puts the cursor on another row first.
+/// Finding the selected row costs O(min(s, r) x log rows) for s selected
+/// ids and the index r of the row found.
+///
 /// ## Type-ahead
 ///
 /// With [typeAhead] (the default), typing jumps to rows by name. A key
-/// press joins the search when it types a printable character, Ctrl, Meta
-/// (Cmd), and Alt are up, and no binding of [shortcuts] accepts it (so `*`
-/// always expands a subtree). Space joins only while a search is in
+/// press joins the search when it types a printable character without a
+/// shortcut modifier and no binding of [shortcuts] accepts it (so `*`
+/// always expands a subtree). Meta (Cmd) is always a shortcut modifier,
+/// and so are Ctrl and Alt, except where a platform types text with them:
+/// Option (Alt) without Ctrl on macOS, iOS, and Android, and AltGr on
+/// Windows, which reports Ctrl and Alt together. (Linux reports AltGr as a
+/// key of its own, so its characters join as well.) Space joins only while a search is in
 /// progress; otherwise it toggles the selection. The search text resets
 /// [typeAheadTimeout] after the latest character, when another key (not a
 /// modifier) is pressed, and when the tree loses the focus.
@@ -100,8 +117,9 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 ///   around, so typing more of a name keeps the row once it matches.
 ///
 /// The row found is focused and selected with
-/// [DirectoryTreeController.select], which also scrolls it into view; when
-/// no row matches, nothing changes. A search reads each row's label at most
+/// [DirectoryTreeController.select] (only focused, with
+/// [DirectoryTreeController.focus], when [selectionFollowsFocus] is false),
+/// which also scrolls it into view; when no row matches, nothing changes. A search reads each row's label at most
 /// once per key press, so a key press with no match costs O(rows).
 class DirectoryTreeKeyboard<T> extends StatefulWidget {
   /// Creates the keyboard handling for [controller]'s rows around [child].
@@ -116,6 +134,7 @@ class DirectoryTreeKeyboard<T> extends StatefulWidget {
     this.checkboxMode = DirectoryTreeCheckboxMode.none,
     this.typeAhead = true,
     this.typeAheadTimeout = const Duration(seconds: 1),
+    this.selectionFollowsFocus = true,
   });
 
   /// The controller whose rows the keys move through and act on.
@@ -179,6 +198,25 @@ class DirectoryTreeKeyboard<T> extends StatefulWidget {
   /// A key press after this much time starts a new search. A zero duration
   /// keeps only the latest character.
   final Duration typeAheadTimeout;
+
+  /// Whether moving the keyboard cursor also selects the row it reaches;
+  /// true by default.
+  ///
+  /// When true, focus moves select as their intents say: a plain arrow
+  /// replaces the selection, a Shift arrow extends it (see
+  /// [MoveTreeFocusIntent.selection]), Left and Right select the parent or
+  /// first child they move to, and type-ahead selects the row it finds.
+  ///
+  /// When false, every focus move of the default actions (the arrows with
+  /// any modifier, Home, End, Page Up, Page Down, Left and Right when they
+  /// move, and type-ahead) only moves [DirectoryTreeController.focusedId]
+  /// and keeps the selection. The selection then changes only through
+  /// [ToggleTreeSelectionIntent] (Space), [SelectAllTreeNodesIntent],
+  /// [ClearTreeSelectionIntent], clicks, and code. Use it where the user
+  /// builds the selection pick by pick, such as a multiple selection shown
+  /// as checkboxes, so that moving through the rows never undoes a pick.
+  /// An overriding action (see "Overriding actions") decides for itself.
+  final bool selectionFollowsFocus;
 
   @override
   State<DirectoryTreeKeyboard<T>> createState() =>
@@ -247,6 +285,14 @@ class DirectoryTreeKeyboard<T> extends StatefulWidget {
           typeAheadTimeout,
           defaultValue: const Duration(seconds: 1),
         ),
+      )
+      ..add(
+        FlagProperty(
+          'selectionFollowsFocus',
+          value: selectionFollowsFocus,
+          ifFalse: 'selection does not follow focus',
+          defaultValue: true,
+        ),
       );
   }
 }
@@ -272,6 +318,10 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
       (_ownedFocusNode ??= FocusNode(debugLabel: 'DirectoryTreeKeyboard'));
 
   DirectoryTreeController<T> get _controller => widget.controller;
+
+  /// What a focus move of a default action does to the selection.
+  TreeSelectionUpdate _selectionFor(TreeSelectionUpdate requested) =>
+      widget.selectionFollowsFocus ? requested : TreeSelectionUpdate.keep;
 
   @override
   void initState() {
@@ -361,7 +411,54 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
   }
 
   void _handleFocusChange(bool focused) {
-    if (!focused) _resetTypeAhead();
+    if (focused) {
+      _focusInitialRow();
+    } else {
+      _resetTypeAhead();
+    }
+  }
+
+  /// Gives the keyboard cursor a row when the tree gains the focus without
+  /// one: the first selected row, else the first row. Never selects.
+  void _focusInitialRow() {
+    final controller = _controller;
+    if (controller.focusedId != null) return;
+    final rows = controller.rows;
+    if (rows.isEmpty) return;
+    final index = _firstSelectedRowIndex(controller);
+    controller.focus(rows[index < 0 ? 0 : index].id);
+  }
+
+  /// The index of the first row whose id is selected (the rows the view
+  /// paints as selected), or -1.
+  ///
+  /// Two scans run in lockstep, so the cost stays O(min(s, r) x log rows)
+  /// for s selected ids and the answer r: one walks the selected ids and
+  /// keeps the smallest row index, the other walks the rows from the top.
+  /// The answer is final once the rows scan meets a selected row or the
+  /// smallest index found so far, or once every id was seen.
+  static int _firstSelectedRowIndex(
+    DirectoryTreeController<Object?> controller,
+  ) {
+    final selection = controller.selection;
+    if (selection.isEmpty) return -1;
+    final rows = controller.rows;
+    final ids = selection.selected.iterator;
+    var best = -1;
+    var next = 0;
+    while (ids.moveNext()) {
+      final id = ids.current;
+      final index = rows.indexOfNode(id);
+      if (index >= 0 && rows[index].id == id && (best < 0 || index < best)) {
+        best = index;
+      }
+      if (best >= 0 && next >= best) return best;
+      if (next < rows.length) {
+        if (selection.isSelected(rows[next].id)) return next;
+        next++;
+      }
+    }
+    return best;
   }
 
   /// The type-ahead handler: takes the printable characters that no
@@ -371,12 +468,9 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
       return KeyEventResult.ignored;
     }
     final character = event.character;
-    final keyboard = HardwareKeyboard.instance;
     if (character == null ||
         !_isPrintable(character) ||
-        keyboard.isControlPressed ||
-        keyboard.isMetaPressed ||
-        keyboard.isAltPressed) {
+        !_typesText(HardwareKeyboard.instance)) {
       // Modifiers alone (Shift for a capital letter) keep the search going;
       // any other key ends it.
       if (!_modifierKeys.contains(event.logicalKey)) _resetTypeAhead();
@@ -437,7 +531,11 @@ class _DirectoryTreeKeyboardState<T> extends State<DirectoryTreeKeyboard<T>> {
       final row = rows[(start + step) % count];
       // TreeRow.label is computed on each read, so it is read once here.
       if (row.label.toLowerCase().startsWith(prefix)) {
-        controller.select(row.id);
+        if (widget.selectionFollowsFocus) {
+          controller.select(row.id);
+        } else {
+          controller.focus(row.id);
+        }
         return;
       }
     }
@@ -467,6 +565,25 @@ final class _TreeShortcutManager extends ShortcutManager {
     if (!_isActive()) return KeyEventResult.ignored;
     return super.handleKeypress(context, event);
   }
+}
+
+/// Whether the pressed modifiers still type text rather than form a
+/// shortcut: none of Ctrl, Alt, and Meta; Option (Alt) without Ctrl on
+/// Apple platforms and Android, whose layouts type characters with it; and
+/// AltGr on Windows, which reports Ctrl and Alt together. Linux reports
+/// AltGr as a key of its own, which is not a modifier here.
+bool _typesText(HardwareKeyboard keyboard) {
+  if (keyboard.isMetaPressed) return false;
+  final control = keyboard.isControlPressed;
+  final alt = keyboard.isAltPressed;
+  if (!control && !alt) return true;
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.macOS ||
+    TargetPlatform.iOS ||
+    TargetPlatform.android => !control,
+    TargetPlatform.windows => control && alt,
+    TargetPlatform.linux || TargetPlatform.fuchsia => false,
+  };
 }
 
 /// Whether [character] can be typed into a name: no control characters
@@ -525,7 +642,10 @@ class _MoveTreeFocusAction<T> extends Action<MoveTreeFocusIntent> {
 
   @override
   void invoke(MoveTreeFocusIntent intent) {
-    _state._controller.moveFocus(intent.move, selection: intent.selection);
+    _state._controller.moveFocus(
+      intent.move,
+      selection: _state._selectionFor(intent.selection),
+    );
   }
 }
 
@@ -543,7 +663,11 @@ class _ExpandTreeNodeAction<T> extends Action<ExpandTreeNodeIntent> {
       if (controller.isExpandable(row.id)) controller.expand(row.id);
       return;
     }
-    if (controller.moveFocus(TreeFocusMove.firstChild)) return;
+    final moved = controller.moveFocus(
+      TreeFocusMove.firstChild,
+      selection: _state._selectionFor(TreeSelectionUpdate.replace),
+    );
+    if (moved) return;
     // Expanded with no child rows: only a lazy directory whose load never
     // ran or failed is still expandable then, and expand starts that load
     // (it does nothing while a load runs).
@@ -564,7 +688,10 @@ class _CollapseTreeNodeAction<T> extends Action<CollapseTreeNodeIntent> {
     if (row.isExpanded) {
       controller.collapse(row.id);
     } else {
-      controller.moveFocus(TreeFocusMove.parent);
+      controller.moveFocus(
+        TreeFocusMove.parent,
+        selection: _state._selectionFor(TreeSelectionUpdate.replace),
+      );
     }
   }
 }

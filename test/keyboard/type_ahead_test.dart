@@ -17,6 +17,10 @@ DirectoryTree<Object?> asteriskTree() => DirectoryTree<Object?>.build(const [
 const aStarB = NodeId('/r/a*b.txt');
 const betaTxt = NodeId('/r/beta.txt');
 
+TargetPlatformVariant get windowsAndLinux => TargetPlatformVariant(
+  const <TargetPlatform>{TargetPlatform.windows, TargetPlatform.linux},
+);
+
 void main() {
   group('matching', () {
     testWidgets('one letter cycles through the rows that start with it', (
@@ -101,7 +105,7 @@ void main() {
       tester,
     ) async {
       final h = await pumpKeyboard(tester);
-      expect(h.controller.focusedId, isNull);
+      await clearRowFocus(tester, h);
       await typeText(tester, 'r');
       expect(h.controller.focusedId, r);
       await typeText(tester, 'r');
@@ -380,6 +384,8 @@ void main() {
       expect(h.controller.focusedId, alpha);
     });
 
+    // Alt alone is a shortcut modifier on Windows and Linux only; Option
+    // types text on Apple platforms and Android (keyboard_focus_test.dart).
     testWidgets('Ctrl, Meta, and Alt keep characters out', (tester) async {
       final h = await pumpKeyboard(tester);
       h.controller.select(alpha);
@@ -393,7 +399,7 @@ void main() {
         isFalse,
       );
       expect(h.controller.focusedId, alpha);
-    });
+    }, variant: windowsAndLinux);
 
     testWidgets('control and private-use characters stay out', (tester) async {
       final h = await pumpKeyboard(tester);

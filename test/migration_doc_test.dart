@@ -382,9 +382,11 @@ void main() {
       );
       await tester.pump();
       expect(find.text('Files'), findsOneWidget);
+      // Taking the focus without a focused row focuses the first row.
+      expect(controller.focusedRow?.label, 'repo');
       await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
       await tester.pump();
-      expect(controller.focusedRow?.label, 'repo');
+      expect(controller.focusedRow?.label, 'lib');
     });
 
     testWidgets('the row count follows the rows', (tester) async {

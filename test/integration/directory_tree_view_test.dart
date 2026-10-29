@@ -97,8 +97,10 @@ void main() {
       );
       focusNode.requestFocus();
       await tester.pump();
-      await press(tester, LogicalKeyboardKey.arrowDown);
+      // Gaining the focus without a focused row focuses the first row.
       expect(controller.focusedId, repo);
+      await press(tester, LogicalKeyboardKey.arrowDown);
+      expect(controller.focusedId, lib);
       await click(tester, rowCenter(tester, readme));
       expect(focusNode.hasPrimaryFocus, isTrue);
     });
