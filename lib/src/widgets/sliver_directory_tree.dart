@@ -89,12 +89,19 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 /// changes, for example with the text scale.
 ///
 /// While the view scrolls: a fling continues from the corrected position
-/// with its momentum, and an animated
+/// with its momentum (an overscroll past an end, with bouncing physics,
+/// stays as it was and springs back), and an animated
 /// [DirectoryTreeController.ensureVisible] is aimed again at its row's new
 /// place for the time it has left (when the row is already where it was
-/// asked to be, the scroll stops there). A correction does not notify
-/// scroll listeners itself, as a layout correction does not; the fling or
-/// the animation reports the corrected offsets from its next frame on.
+/// asked to be, the scroll stops there). A fling restarted between frames
+/// holds still for one frame, as any fling or animation started from an
+/// event does. Rows that change while widgets build (a parent setting the
+/// controller's tree in `didUpdateWidget`) are handled the same way, but
+/// without starting scroll activities during the build: the frame's layout
+/// restarts the fling, and the animation is aimed after the frame. A
+/// correction does not notify scroll listeners itself, as a layout
+/// correction does not; the fling or the animation reports the corrected
+/// offsets from its next frame on.
 ///
 /// Where this does not hold:
 ///
@@ -551,7 +558,14 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     }
     _rows = rows;
     _anchorScrollOffset();
-    _retargetRowAnimation();
+    if (_inBuildOrLayout) {
+      // Rows changed while widgets build (a parent set the controller's
+      // tree in its didUpdateWidget): aim the animation once this frame is
+      // laid out, without starting scroll activities during the build.
+      _retargetAfterFrame();
+    } else {
+      _retargetRowAnimation();
+    }
     // The visible children may all stay the same while the row count
     // changes, which alone would not lay the sliver out again.
     _renderSliver()?.markNeedsLayout();
@@ -585,18 +599,10 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final extent = theme.rowExtent!;
     final render = _renderSliver();
     if (render != null && render.itemExtent != extent) {
-      _anchorScrollOffset(extent: extent, duringBuild: true);
-      final animation = _rowAnimation;
-      if (animation != null) {
-        // The row's new place is known once this frame's layout gave the
-        // render sliver the new extent; no animation frame runs before
-        // the post-frame callbacks.
-        SchedulerBinding.instance.addPostFrameCallback((_) {
-          if (mounted && identical(_rowAnimation, animation)) {
-            _retargetRowAnimation();
-          }
-        });
-      }
+      _anchorScrollOffset(extent: extent);
+      // The row's new place is known once this frame's layout gave the
+      // render sliver the new extent.
+      _retargetAfterFrame();
     }
     final snapshot = _Snapshot<T>(
       rows: _rows,
@@ -919,9 +925,8 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   /// The correction is computed against the rows of the latest build, which
   /// are the rows the render sliver was last laid out with, and the part
   /// already applied since then is subtracted, so several changes before
-  /// one frame add up to the right total. [duringBuild] says the call comes
-  /// from [build], with this frame's layout still to come.
-  void _anchorScrollOffset({double? extent, bool duringBuild = false}) {
+  /// one frame add up to the right total.
+  void _anchorScrollOffset({double? extent}) {
     final base = _snapshot?.rows;
     final render = _renderSliver();
     final position = _position;
@@ -965,11 +970,20 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       _rows.length * newExtent - render.geometry!.scrollExtent,
     );
     final pixels = position.pixels;
-    final target = clampDouble(pixels + delta, range.min, range.max);
+    // An overscroll (bouncing physics past an end) is kept as it is, so
+    // the first visible row keeps its place and the spring goes on; a
+    // correction never creates one.
+    final overscrollStart = math.max(0.0, position.minScrollExtent - pixels);
+    final overscrollEnd = math.max(0.0, pixels - position.maxScrollExtent);
+    final target = clampDouble(
+      pixels + delta,
+      range.min - overscrollStart,
+      range.max + overscrollEnd,
+    );
     final correction = target - pixels;
     if (correction != 0) {
       position.correctBy(correction);
-      _keepCorrection(position, correction, range, duringBuild: duringBuild);
+      _keepCorrection(position, correction, range);
     }
     if (shown != null) {
       _shownAnchor = (
@@ -1014,11 +1028,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   ///   simulation is planned against [range]: the position still has the
   ///   extents of the latest layout, against which the corrected offset
   ///   may lie past the end, and clamping physics would then spring back
-  ///   with no velocity. During a build ([duringBuild]) nothing restarts:
-  ///   this frame's layout follows before any animation frame, and the
-  ///   correction makes it restart the fling against the new extents
-  ///   ([ScrollActivity.applyNewDimensions]), without starting activities
-  ///   (and dispatching scroll notifications) while widgets build.
+  ///   with no velocity. While widgets build ([_inBuildOrLayout]) nothing
+  ///   restarts: this frame's layout follows before any animation frame,
+  ///   and the correction makes it restart the fling against the new
+  ///   extents ([ScrollActivity.applyNewDimensions]), without starting
+  ///   activities (and dispatching scroll notifications) during the build.
   /// * An animated showRow is aimed again by [_retargetRowAnimation], from
   ///   the corrected offset.
   /// * An animation the app started ([ScrollPosition.animateTo]) keeps its
@@ -1028,12 +1042,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   void _keepCorrection(
     ScrollPosition position,
     double correction,
-    ({double min, double max}) range, {
-    required bool duringBuild,
-  }) {
+    ({double min, double max}) range,
+  ) {
     final activity = _activityOf(position);
     if (activity is BallisticScrollActivity) {
-      if (duringBuild) return;
+      if (_inBuildOrLayout) return;
       final delegate = activity.delegate;
       if (!identical(delegate, position)) {
         // A position that coordinates others plans the fling itself.
@@ -1063,6 +1076,27 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         identical(activity, _rowAnimation?.activity)) {
       _rowAnimation!.correction += correction;
     }
+  }
+
+  /// Whether the current frame is building or laying out widgets, so its
+  /// layout (of this sliver, which a rows change marks dirty) still
+  /// follows: the controller can notify during a build, for example when
+  /// a parent sets its tree in `didUpdateWidget`.
+  static bool get _inBuildOrLayout =>
+      SchedulerBinding.instance.schedulerPhase ==
+      SchedulerPhase.persistentCallbacks;
+
+  /// Aims the running animated showRow again after this frame, once its
+  /// layout gave the render sliver the new rows and row height; no
+  /// animation frame runs before the post-frame callbacks.
+  void _retargetAfterFrame() {
+    final animation = _rowAnimation;
+    if (animation == null) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted && identical(_rowAnimation, animation)) {
+        _retargetRowAnimation();
+      }
+    });
   }
 
   /// The running activity of [position].

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1079,6 +1080,265 @@ void main() {
     });
   });
 
+  group('corrections at the edges and during builds', () {
+    // Twenty files that sort before every file of wideTree.
+    final early = [
+      for (var i = 0; i < 20; i++) 'a${i.toString().padLeft(2, '0')}.txt',
+    ];
+
+    // Pulls past the end of a 200-file tree and releases, lets two frames
+    // of the spring back pass, then optionally inserts 20 rows above; the
+    // distance past the end on each following frame, until it settles.
+    Future<List<double>> springBack(
+      WidgetTester tester, {
+      required bool insert,
+    }) async {
+      final controller = wideController(200);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      await tester.pump();
+      final gesture = await tester.startGesture(const Offset(200, 250));
+      for (var i = 0; i < 10; i++) {
+        await gesture.moveBy(const Offset(0, -20));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 16));
+      final position = scroll.position;
+      expect(position.pixels, greaterThan(position.maxScrollExtent + 20));
+      final past = <double>[position.pixels - position.maxScrollExtent];
+      final firstId = controller.rows[(position.pixels / rowExtent).ceil()].id;
+      final firstTop = shownTop(tester, firstId);
+      if (insert) {
+        controller.tree = wideTree(200, extra: early);
+        await tester.pump(const Duration(milliseconds: 16));
+        // The first visible row moved by one frame of the spring at most.
+        expect((shownTop(tester, firstId) - firstTop).abs(), lessThan(10));
+      } else {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      past.add(position.pixels - position.maxScrollExtent);
+      for (var i = 0; i < 60; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        past.add(position.pixels - position.maxScrollExtent);
+      }
+      await tester.pumpAndSettle();
+      past.add(position.pixels - position.maxScrollExtent);
+      return past;
+    }
+
+    testWidgets(
+      'a correction during an overscroll keeps the overscroll and the '
+      'spring back',
+      (tester) async {
+        final control = await springBack(tester, insert: false);
+        final moved = await springBack(tester, insert: true);
+        // The content stays past the end by what it was, then settles at
+        // the end, as without the insert.
+        expect(moved[1], greaterThan(0));
+        // A fling restarted outside a frame holds its first frame, so the
+        // spring may lag one frame, but nothing jumps.
+        expect(moved[1], greaterThan(control[1] - 1));
+        expect(moved[1], lessThanOrEqualTo(moved[0] + 1));
+        for (var i = 1; i < moved.length; i++) {
+          expect(moved[i], greaterThanOrEqualTo(-precisionErrorTolerance));
+        }
+        expect(moved.last, closeTo(0, precisionErrorTolerance));
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets('a tree replaced during a build in a fling dispatches no '
+        'scroll notification while widgets build', (tester) async {
+      final controller = wideController(200);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      var tree = wideTree(200);
+      var ends = 0;
+      var endsWhileBuilding = 0;
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return NotificationListener<ScrollEndNotification>(
+              onNotification: (_) {
+                ends++;
+                // Scroll-driven UI that sets state here asserts when the
+                // notification comes while widgets build.
+                if (tester.binding.buildOwner!.debugBuilding) {
+                  endsWhileBuilding++;
+                }
+                return false;
+              },
+              child: _TreeOnRebuild(
+                tree: tree,
+                controller: controller,
+                child: treeApp(
+                  controller: controller,
+                  scrollController: scroll,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      scroll.jumpTo(5300);
+      await tester.pump();
+      await tester.flingFrom(
+        const Offset(200, 150),
+        const Offset(0, -50),
+        1000,
+      );
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(scroll.position.activity, isA<BallisticScrollActivity>());
+      // Five files above the view and the last fifteen go away: the
+      // corrected offset lands at the new end, where the fling stops.
+      rebuild(() {
+        tree = DirectoryTree<int>.build([
+          for (var i = 5; i < 185; i++)
+            TreeEntry<int>.file('/w/${wideName(i)}'),
+        ]);
+      });
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(endsWhileBuilding, 0);
+      expect(ends, greaterThan(0));
+      expect(scroll.offset, scroll.position.maxScrollExtent);
+    });
+
+    testWidgets('an animated reveal whose rows change during a build is aimed '
+        'after that frame', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      var tree = wideTree(100);
+      late StateSetter rebuild;
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return NotificationListener<ScrollNotification>(
+              // Scroll-driven UI sets state; during a build it asserts.
+              onNotification: (_) {
+                setState(() {});
+                return false;
+              },
+              child: _TreeOnRebuild(
+                tree: tree,
+                controller: controller,
+                child: treeApp(
+                  controller: controller,
+                  scrollController: scroll,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      var done = false;
+      unawaited(
+        controller
+            .ensureVisible(
+              wideId(70),
+              alignment: 0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.linear,
+            )
+            .then((_) => done = true),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      // Twenty rows above the view and five between it and the target.
+      rebuild(() {
+        tree = wideTree(
+          100,
+          extra: [...early, for (var i = 0; i < 5; i++) 'f0060_$i.txt'],
+        );
+      });
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(done, isTrue);
+      expect(shownTop(tester, wideId(70)), 0);
+    });
+
+    testWidgets('an animated reveal whose row comes into view during a build '
+        'stops after that frame', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      var tree = wideTree(100);
+      late StateSetter rebuild;
+      var ends = 0;
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            rebuild = setState;
+            return NotificationListener<ScrollEndNotification>(
+              onNotification: (_) {
+                setState(() => ends++);
+                return false;
+              },
+              child: _TreeOnRebuild(
+                tree: tree,
+                controller: controller,
+                child: treeApp(
+                  controller: controller,
+                  scrollController: scroll,
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      double? doneAt;
+      unawaited(
+        controller
+            .ensureVisible(
+              wideId(60),
+              duration: const Duration(milliseconds: 1000),
+              curve: Curves.linear,
+            )
+            .then((_) => doneAt = scroll.offset),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      // Files 30 to 59 go away during a build: file 60 is now on screen.
+      rebuild(() {
+        tree = DirectoryTree<int>.build([
+          for (var i = 0; i < 100; i++)
+            if (i < 30 || i >= 60) TreeEntry<int>.file('/w/${wideName(i)}'),
+        ]);
+      });
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(ends, greaterThan(0));
+      expect(doneAt, isNotNull);
+      expect(scroll.offset, doneAt);
+      final top = shownTop(tester, wideId(60));
+      expect(top, greaterThanOrEqualTo(0));
+      expect(top, lessThanOrEqualTo(viewportHeight - rowExtent));
+    });
+  });
+
   group('visible area', () {
     testWidgets('pageRowCount counts only the rows the viewport shows', (
       tester,
@@ -1178,6 +1438,36 @@ double shownTop(WidgetTester tester, NodeId id) {
   return finder.evaluate().isEmpty
       ? double.infinity
       : tester.getTopLeft(finder).dy;
+}
+
+/// Sets [controller]'s tree to [tree] when rebuilt with a new one, during
+/// the build, as a widget that owns a controller for its tree does.
+class _TreeOnRebuild extends StatefulWidget {
+  const _TreeOnRebuild({
+    required this.tree,
+    required this.controller,
+    required this.child,
+  });
+
+  final DirectoryTree<int> tree;
+  final DirectoryTreeController<int> controller;
+  final Widget child;
+
+  @override
+  State<_TreeOnRebuild> createState() => _TreeOnRebuildState();
+}
+
+class _TreeOnRebuildState extends State<_TreeOnRebuild> {
+  @override
+  void didUpdateWidget(_TreeOnRebuild oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.tree, widget.tree)) {
+      widget.controller.tree = widget.tree;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// A pinned header 120 px high.
