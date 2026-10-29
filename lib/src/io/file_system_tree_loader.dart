@@ -127,8 +127,17 @@ final class FileSystemTreeLoader {
   /// whose later loads resolve against the current directory of that
   /// moment. A relative path that climbs above its start, such as `..` or
   /// `../project`, is read through its absolute form instead, as
-  /// [DirectoryScanner.scanTree] does. Entry paths are parsed by
-  /// [TreeOptions.paths].
+  /// [DirectoryScanner.scanTree] does.
+  ///
+  /// Entry paths are parsed by [TreeOptions.paths] with
+  /// [PathPolicy.backslashIsSeparator] set to the host rule
+  /// ([Platform.isWindows]) whatever [options] says, as
+  /// [DirectoryScanner.scanTree] does: `dart:io` reports host paths, and on
+  /// Linux and macOS `\` is an ordinary character in names (`x\y.txt` is
+  /// one file). Every other setting of [options] is used as given, and the
+  /// returned tree's [DirectoryTree.options] show the policy actually used.
+  /// A tree built another way for [loadChildren] should follow the same
+  /// rule.
   ///
   /// Completes with an [ArgumentError] when [depth] is negative, a
   /// [PathNotFoundException] when nothing exists at [path], a
@@ -153,7 +162,8 @@ final class FileSystemTreeLoader {
     if (depth < 0) {
       throw ArgumentError.value(depth, 'depth', 'must be >= 0');
     }
-    final policy = options.paths;
+    final effective = _hostOptions(options);
+    final policy = effective.paths;
     final readPath = _readPath(path, policy);
     final base = policy.tryParse(readPath)?.toString() ?? readPath;
     final List<TreeEntry<FileSystemEntity>> children;
@@ -173,7 +183,21 @@ final class FileSystemTreeLoader {
       ...children,
     ];
     if (depth > 1) await _listBelow(readPath, children, depth, entries);
-    return DirectoryTree<FileSystemEntity>.build(entries, options: options);
+    return DirectoryTree<FileSystemEntity>.build(entries, options: effective);
+  }
+
+  /// [options] with [PathPolicy.backslashIsSeparator] set to the host rule,
+  /// or [options] itself when it already follows it.
+  static TreeOptions _hostOptions(TreeOptions options) {
+    final paths = options.paths;
+    if (paths.backslashIsSeparator == Platform.isWindows) return options;
+    return options.copyWith(
+      paths: PathPolicy(
+        caseSensitive: paths.caseSensitive,
+        backslashIsSeparator: Platform.isWindows,
+        unicodeNormalizer: paths.unicodeNormalizer,
+      ),
+    );
   }
 
   /// Lists the direct children of [directory] on disk.

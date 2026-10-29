@@ -228,7 +228,7 @@ void main() {
       );
     });
 
-    test('builds the tree with the given options', () async {
+    test('builds the tree with the given options and the host rule', () async {
       const options = TreeOptions(
         paths: PathPolicy.caseInsensitive,
         order: TreeOrder.alphabetical,
@@ -238,7 +238,17 @@ void main() {
         options: options,
         depth: 2,
       );
-      expect(tree.options, options);
+      // Only the backslash rule follows the host; every other setting is
+      // used as given.
+      expect(
+        tree.options,
+        options.copyWith(
+          paths: PathPolicy(
+            caseSensitive: false,
+            backslashIsSeparator: Platform.isWindows,
+          ),
+        ),
+      );
       expect(describeTree(tree), [
         'd:.:Directory',
         'd:a:Directory',
@@ -595,19 +605,29 @@ void main() {
       );
     });
 
-    test('is split by the default policy, as a scan does', () async {
-      final path = '${base.path}/w';
-      final tree = await const FileSystemTreeLoader().loadTree(path);
-      expect(describeTree(tree), [
-        'd:.:Directory',
-        'd:x:none',
-        'f:x/y.txt:File',
-      ]);
-      expect(
-        describeTree(tree),
-        describeTree(await const DirectoryScanner().scanTree(path)),
-      );
-    });
+    test(
+      'stays one segment with the default options, as a scan does',
+      () async {
+        final path = '${base.path}/w';
+        const loader = FileSystemTreeLoader();
+        final tree = await loader.loadTree(path);
+        expect(describeTree(tree), ['d:.:Directory', r'f:x\y.txt:File']);
+        expect(tree.options.paths.backslashIsSeparator, isFalse);
+        expect(
+          describeTree(tree),
+          describeTree(await const DirectoryScanner().scanTree(path)),
+        );
+        // Children loaded later land in a tree with the same rule.
+        final lazy = await loader.loadTree(path, depth: 0);
+        final children = await loader.loadChildren(
+          lazy.rootNodes.single as DirectoryNode<FileSystemEntity>,
+        );
+        expect(
+          describeTree(lazy.rebuild((builder) => builder.addAll(children))),
+          ['d:.:Directory', r'f:x\y.txt:File'],
+        );
+      },
+    );
   }, skip: Platform.isWindows ? r'\ separates paths on Windows' : false);
 
   group(
