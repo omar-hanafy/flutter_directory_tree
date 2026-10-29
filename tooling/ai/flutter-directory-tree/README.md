@@ -145,8 +145,13 @@ Rules:
   read the legacy manifest's `interface`; keep the two identical.
 - Skill facts must match the source. Change a skill in the same pull request
   as the behavior it describes; `test/agent_skill_claims_test.dart` compiles
-  every Dart block of the skills, checks that every API name they mention
-  exists, and asserts their behavioral claims.
+  every 2.x Dart block of the skills, checks that every API name they
+  mention in inline code or in any other fenced block exists (or is a
+  removed 1.x name, which the use skill may name only as a wrong guess),
+  and asserts their behavioral claims.
+- The plugin stays instructions only: `tool/validate_agent_plugin.dart`
+  allows only the manifests' metadata fields and the manifests, this
+  README, the icon, and Markdown skills and eval cases as files.
 - A breaking package release ships its migration hop, as a new
   `migrate-flutter-directory-tree-vX-to-vY` skill, before it is tagged.
 

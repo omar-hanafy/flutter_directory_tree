@@ -27,6 +27,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 import 'package:flutter_directory_tree/io.dart';
@@ -90,14 +91,16 @@ void main() {
 
     test('every API name in the skills exists', () {
       final unknown = <String>{};
+      final v1Advice = <String>{};
       skillFiles.forEach((path, text) {
-        for (final name in _mentionedNames(text)) {
-          if (_names.containsKey(name) ||
-              _v1Names.contains(name) ||
-              _notApi.contains(name)) {
-            continue;
+        final file = path.split('/skills/').last;
+        for (final (:name, :line) in _mentionedNames(text)) {
+          if (_names.containsKey(name) || _notApi.contains(name)) continue;
+          if (!_v1Names.contains(name)) {
+            unknown.add('$name ($file)');
+          } else if (path.startsWith(_useSkill) && !_namesOldApi(line, name)) {
+            v1Advice.add('$name ($file): $line');
           }
-          unknown.add('$name (${path.split('/skills/').last})');
         }
       });
       expect(
@@ -107,6 +110,19 @@ void main() {
             'These names are not in _names (code that uses them), _v1Names, '
             'or _notApi. Fix the skill, or add a use of the real API.',
       );
+      expect(
+        v1Advice,
+        isEmpty,
+        reason:
+            'The use skill may name a removed 1.x API only in the "Wrong '
+            'guess" column of its table or on a line that says "1.x".',
+      );
+    });
+
+    test('every Dart block of the skills is complete', () {
+      for (final block in blocks) {
+        expect(_isBalanced(block), isTrue, reason: block);
+      }
     });
 
     test('every _names entry uses the name it lists', () {
@@ -271,6 +287,138 @@ void main() {
       expect(controller.selectionMode, SelectionMode.multiple);
       expect(controller.checks.mode, SelectionMode.multiple);
       expect(const SelectionState.empty().mode, SelectionMode.single);
+    });
+
+    test('clearing the search keeps the folders that lead to the focused '
+        'row open, and they join the requested expansion', () {
+      final controller = _sample();
+      addTearDown(controller.dispose);
+      final lib = controller.tree.idOf('/repo/lib')!;
+      final src = controller.tree.idOf('/repo/lib/src')!;
+      final test = controller.tree.idOf('/repo/test')!;
+      final match = controller.tree.idOf('/repo/lib/src/tree.dart')!;
+
+      controller.query = 'tree';
+      expect(controller.isExpanded(test), isTrue); // tree_test.dart matched
+      controller.select(match);
+      controller.query = '';
+      expect(controller.focusedId, match);
+      expect(controller.rows.indexOfNode(match), isNot(-1));
+      expect(controller.isExpanded(test), isFalse);
+      expect(controller.expansion.isExpanded(lib), isTrue);
+      expect(controller.expansion.isExpanded(src), isTrue);
+      expect(controller.expansion.isExpanded(test), isFalse);
+      expect(
+        _normalize(File('$_useSkill/SKILL.md').readAsStringSync()),
+        contains('except the ones leading to the focused row'),
+      );
+    });
+
+    test('the performance lines match the controller and core docs', () {
+      final skill = File('$_useSkill/SKILL.md').readAsStringSync();
+      final controller = File(
+        'lib/src/controller/directory_tree_controller.dart',
+      ).readAsStringSync();
+      final rows = File(
+        '${_packageRoot('directory_tree').path}/src/view/tree_rows.dart',
+      ).readAsStringSync();
+      for (final (member, cost) in [
+        ('select', 'O(log rows)'),
+        ('toggleSelected', 'O(selection size + log rows)'),
+        ('extendSelection', 'O(range size + log rows)'),
+      ]) {
+        expect(_normalize(skill), contains('`$member` '), reason: member);
+        expect(_normalize(skill), contains(cost), reason: member);
+        expect(
+          _docOf(controller, 'void $member('),
+          contains(cost),
+          reason: 'the dartdoc of $member',
+        );
+      }
+      expect(
+        _normalize(skill),
+        contains('plus copying the row list and the expansion state'),
+      );
+      for (final member in [
+        'TreeRows<T> expandNode(',
+        'TreeRows<T> collapseNode(',
+      ]) {
+        expect(
+          _docOf(rows, member),
+          contains('plus copying the row list and the expansion states'),
+          reason: member,
+        );
+      }
+    });
+
+    testWidgets('composedExplorer: the menu host above the keyboard opens '
+        'from Shift+F10 and from a secondary tap', (tester) async {
+      final controller = _sample();
+      addTearDown(controller.dispose);
+      expect(
+        currentBlocks.where((b) => b.contains('Widget composedExplorer(')),
+        hasLength(1),
+        reason: 'The use skill shows this composition.',
+      );
+      await tester.pumpWidget(_app(composedExplorer(controller)));
+      expect(find.text('Open editors'), findsOneWidget);
+
+      await tester.tap(find.text('test'));
+      await tester.pump(kDoubleTapTimeout);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pumpAndSettle();
+      expect(find.text('Expand all below'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Expand all below'), findsNothing);
+
+      await tester.tap(find.text('README.md'), buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Expand all below'), findsOneWidget);
+    });
+
+    testWidgets('a menu host inside the keyboard widget opens only from '
+        'secondary taps, as the skill warns', (tester) async {
+      final controller = _sample();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        _app(
+          DirectoryTreeKeyboard(
+            controller: controller,
+            child: DirectoryTreeContextMenu<Object?>(
+              controller: controller,
+              builder: (context, details) => [
+                MenuItemButton(onPressed: () {}, child: const Text('Rename')),
+              ],
+              child: Builder(
+                builder: (context) => CustomScrollView(
+                  slivers: [
+                    SliverDirectoryTree(
+                      controller: controller,
+                      onRowSecondaryTap: (row, globalPosition) =>
+                          DirectoryTreeContextMenu.maybeOf<Object?>(context)
+                              ?.open(row: row, globalPosition: globalPosition),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('test'));
+      await tester.pump(kDoubleTapTimeout);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shift);
+      await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shift);
+      await tester.pumpAndSettle();
+      expect(find.text('Rename'), findsNothing);
+
+      await tester.tap(find.text('README.md'), buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Rename'), findsOneWidget);
     });
 
     test('a search changes the effective expansion, not the requested one, '
@@ -1000,6 +1148,70 @@ void main() {
       }
     });
 
+    testWidgets('a migrated title that repeats the label is read twice '
+        'unless it is excluded from semantics', (tester) async {
+      for (final file in [
+        '$_migrateSkill/SKILL.md',
+        '$_migrateSkill/references/v1-to-v2-api-mapping.md',
+      ]) {
+        final text = _normalize(File(file).readAsStringSync());
+        expect(text, contains('ExcludeSemantics'), reason: file);
+      }
+      final handle = tester.ensureSemantics();
+      final controller = _sample();
+      addTearDown(controller.dispose);
+      Future<int> readmeLabels(
+        DirectoryTreeRowBuilder<Object?> rowBuilder,
+      ) async {
+        await tester.pumpWidget(
+          _app(
+            DirectoryTreeView(controller: controller, rowBuilder: rowBuilder),
+          ),
+        );
+        var root = tester.getSemantics(find.text('repo'));
+        while (root.parent != null) {
+          root = root.parent!;
+        }
+        var count = 0;
+        void visit(SemanticsNode node) {
+          count += 'README.md'.allMatches(node.label).length;
+          node.visitChildren((SemanticsNode child) {
+            visit(child);
+            return true;
+          });
+        }
+
+        visit(root);
+        return count;
+      }
+
+      expect(
+        await readmeLabels(
+          (context, details) => DirectoryTreeRow(details: details),
+        ),
+        1,
+      );
+      expect(
+        await readmeLabels(
+          (context, details) => DirectoryTreeRow(
+            details: details,
+            title: Text(details.row.label),
+          ),
+        ),
+        2,
+      );
+      expect(
+        await readmeLabels(
+          (context, details) => DirectoryTreeRow(
+            details: details,
+            title: ExcludeSemantics(child: Text(details.row.label)),
+          ),
+        ),
+        1,
+      );
+      handle.dispose();
+    });
+
     test('a 1.x string id compiles and matches nothing', () {
       final controller = _sample();
       addTearDown(controller.dispose);
@@ -1276,8 +1488,60 @@ Future<Set<NodeId>> pickFolderIds(
   return nodes?.map((node) => node.id).toSet() ?? const <NodeId>{};
 }
 
+Widget composedExplorer(DirectoryTreeController<Object?> controller) {
+  return DirectoryTreeContextMenu<Object?>(
+    controller: controller, // above the keyboard: Shift+F10 reaches it
+    builder: (context, details) => [
+      MenuItemButton(
+        onPressed: () => controller.expandSubtree(details.row.id),
+        child: const Text('Expand all below'),
+      ),
+    ],
+    child: Builder(
+      builder: (context) => DirectoryTreeKeyboard(
+        controller: controller,
+        onActivate: (row) => debugPrint('open ${row.node.path}'),
+        child: CustomScrollView(
+          slivers: [
+            const SliverToBoxAdapter(child: Text('Open editors')),
+            SliverDirectoryTree(
+              controller: controller,
+              onActivate: (row) => debugPrint('open ${row.node.path}'),
+              onRowSecondaryTap: (row, globalPosition) =>
+                  DirectoryTreeContextMenu.maybeOf<Object?>(
+                    context, // the Builder's context, below the menu host
+                  )?.open(row: row, globalPosition: globalPosition),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
+
+/// The normalized dartdoc right above [declaration] in [source].
+String _docOf(String source, String declaration) {
+  final lines = source.split('\n');
+  final at = lines.indexWhere((line) => line.trim().startsWith(declaration));
+  expect(at, isNot(-1), reason: 'no declaration "$declaration"');
+  var end = at;
+  while (end > 0 && lines[end - 1].trim().startsWith('@')) {
+    end--; // annotations between the dartdoc and the declaration
+  }
+  var start = end;
+  while (start > 0 && lines[start - 1].trim().startsWith('///')) {
+    start--;
+  }
+  return _normalize(
+    lines
+        .sublist(start, end)
+        .map((line) => line.trim().replaceFirst('///', ''))
+        .join(' '),
+  );
+}
 
 DirectoryTreeController<Object?> _sample() {
   final tree = DirectoryTree.fromPaths([
@@ -1332,32 +1596,20 @@ Directory _packageRoot(String name) {
   return Directory.fromUri(root.resolve(entry['packageUri']! as String));
 }
 
-/// The API names a skill file mentions: CamelCase names in its description,
-/// and, in inline code outside fenced blocks, every CamelCase name, every
-/// name after a `.` or before a `(` or `:`, and every span that is a single
-/// name. Spans that are paths or shell commands, and string literals inside
-/// spans, are skipped.
-Set<String> _mentionedNames(String text) {
-  final names = <String>{};
+/// The API names a skill file mentions, each with the line it is on:
+/// CamelCase names in its description; in inline code, every CamelCase
+/// name, every name after a `.` or before a `(` or `:`, and every span that
+/// is a single name; and the same names, line by line, in every fenced
+/// block except the 2.x `dart` blocks, which this file compiles instead.
+/// String literals and `//` comments are dropped first, and spans or lines
+/// that are paths or shell commands are skipped.
+List<({String name, String line})> _mentionedNames(String text) {
+  final names = <({String name, String line})>[];
   final identifier = RegExp('[A-Za-z_][A-Za-z0-9_]*');
-  var body = text;
-  final frontmatter = RegExp(r'^---\n([\s\S]*?)\n---\n').firstMatch(text);
-  if (frontmatter != null) {
-    final description = RegExp(
-      r'^description:(.*)$',
-      multiLine: true,
-    ).firstMatch(frontmatter.group(1)!)!.group(1)!;
-    for (final match in identifier.allMatches(description)) {
-      final name = match.group(0)!;
-      if (RegExp('[a-z0-9][A-Z]').hasMatch(name)) names.add(name);
-    }
-    body = text.substring(frontmatter.end);
-  }
-  body = body.replaceAll(RegExp(r'```[\s\S]*?```'), '');
   const commands = ['flutter ', 'dart ', 'grep ', 'claude ', 'codex ', 'agy '];
-  for (final span in RegExp('`([^`]+)`').allMatches(body)) {
-    final code = span
-        .group(1)!
+
+  void scan(String raw, String line) {
+    final code = raw
         .replaceAll('\n', ' ')
         .replaceAll(
           RegExp(
@@ -1365,8 +1617,15 @@ Set<String> _mentionedNames(String text) {
             r'"[^"]*"',
           ),
           "''",
-        );
-    if (code.contains('/') || commands.any(code.startsWith)) continue;
+        )
+        .replaceAll(RegExp(r'//.*$'), '')
+        .trim();
+    if (code.isEmpty ||
+        code.startsWith('#') ||
+        code.contains('/') ||
+        commands.any(code.startsWith)) {
+      return;
+    }
     for (final match in identifier.allMatches(code)) {
       final name = match.group(0)!;
       final before = match.start == 0 ? '' : code[match.start - 1];
@@ -1376,11 +1635,77 @@ Set<String> _mentionedNames(String text) {
           after == '(' ||
           after == ':' ||
           (match.start == 0 && match.end == code.length)) {
-        names.add(name);
+        names.add((name: name, line: line));
       }
     }
   }
+
+  var body = text;
+  final frontmatter = RegExp(r'^---\n([\s\S]*?)\n---\n').firstMatch(text);
+  if (frontmatter != null) {
+    final description = RegExp(
+      r'^description:(.*)$',
+      multiLine: true,
+    ).firstMatch(frontmatter.group(1)!)!.group(1)!;
+    for (final match in identifier.allMatches(description)) {
+      final name = match.group(0)!;
+      if (RegExp('[a-z0-9][A-Z]').hasMatch(name)) {
+        names.add((name: name, line: 'description:${match.group(0)}'));
+      }
+    }
+    body = text.substring(frontmatter.end);
+  }
+  final fence = RegExp(r'```(\w*)\n([\s\S]*?)```');
+  for (final match in fence.allMatches(body)) {
+    final content = match.group(2)!;
+    if (match.group(1) == 'dart' && !content.startsWith(_v1Marker)) continue;
+    for (final line in content.split('\n')) {
+      scan(line, line.trim());
+    }
+  }
+  final prose = body.replaceAll(fence, '');
+  final lines = prose.split('\n');
+  var offset = 0;
+  final lineStarts = <int>[
+    for (final line in lines) (offset += line.length + 1) - line.length - 1,
+  ];
+  for (final span in RegExp('`([^`]+)`').allMatches(prose)) {
+    final index = lineStarts.lastIndexWhere((start) => start <= span.start);
+    scan(span.group(1)!, lines[index].trim());
+  }
   return names;
+}
+
+/// Whether [line] of the use skill names the removed 1.x [name] as such: in
+/// the "Wrong guess" column of a table row, or on a line about 1.x.
+bool _namesOldApi(String line, String name) {
+  if (line.contains('1.x')) return true;
+  final cells = line.split('|');
+  return line.startsWith('|') && cells.length > 3 && cells[2].contains(name);
+}
+
+/// Whether the brackets of [code] balance once strings and comments are
+/// dropped, so a block was not cut short.
+bool _isBalanced(String code) {
+  final stripped = code
+      .replaceAll(
+        RegExp(
+          r"'[^'\n]*'|"
+          r'"[^"\n]*"',
+        ),
+        "''",
+      )
+      .replaceAll(RegExp(r'//.*$', multiLine: true), '');
+  final stack = <String>[];
+  const pairs = {')': '(', ']': '[', '}': '{'};
+  for (final char in stripped.split('')) {
+    if ('([{'.contains(char)) {
+      stack.add(char);
+    } else if (pairs.containsKey(char)) {
+      if (stack.isEmpty || stack.removeLast() != pairs[char]) return false;
+    }
+  }
+  return stack.isEmpty;
 }
 
 // ---------------------------------------------------------------------------
@@ -1889,6 +2214,12 @@ final Map<String, void Function()> _names = {
       showDirectoryTreePicker(context: _context, tree: _tree, confirmLabel: ''),
   'folderOpen': () => _icons.folderOpen,
   'BuildContext': () => BuildContext,
+  'Builder': () => Builder,
+  // The skills' own examples, compiled in this file.
+  'watchRows': () => watchRows,
+  'composedExplorer': () => composedExplorer,
+  'Text': () => Text,
+  'debugPrint': () => debugPrint,
   'CustomScrollView': () => CustomScrollView,
   'slivers': () => CustomScrollView(slivers: const []),
 };

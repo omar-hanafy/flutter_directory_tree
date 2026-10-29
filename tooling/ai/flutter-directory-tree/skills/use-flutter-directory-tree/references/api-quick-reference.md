@@ -75,6 +75,21 @@ Object error, StackTrace stackTrace)`.
 `TreeRowsChange`: `isReset`, `index`, `removed`, `inserted`, `previous`
 (the replaced `TreeRows`, or `null`).
 
+Listening to row changes (read `lastRowsChange` in the listener):
+
+```dart
+void watchRows(DirectoryTreeController<Object?> controller) {
+  controller.addListener(() {
+    final change = controller.lastRowsChange; // read it here, not later
+    if (change.isReset) {
+      debugPrint('all ${controller.rows.length} rows replaced');
+    } else {
+      debugPrint('at ${change.index}: -${change.removed} +${change.inserted}');
+    }
+  });
+}
+```
+
 ## Core types (re-exported from package:directory_tree)
 
 - `DirectoryTree.fromPaths(paths, {options})` (a trailing `/` makes a
@@ -177,6 +192,42 @@ maxLines = 1, overflow = TextOverflow.ellipsis})`,
 `DirectoryTreeIndentGuides({required depth, required guides, required
 isLast, style, indentWidth, color, width})`.
 
+The sliver stack with a context menu, outermost first (the menu host
+above the keyboard widget, so Shift+F10 and the menu key reach it):
+
+```dart
+Widget composedExplorer(DirectoryTreeController<Object?> controller) {
+  return DirectoryTreeContextMenu<Object?>(
+    controller: controller, // above the keyboard: Shift+F10 reaches it
+    builder: (context, details) => [
+      MenuItemButton(
+        onPressed: () => controller.expandSubtree(details.row.id),
+        child: const Text('Expand all below'),
+      ),
+    ],
+    child: Builder(
+      builder: (context) => DirectoryTreeKeyboard(
+        controller: controller,
+        onActivate: (row) => debugPrint('open ${row.node.path}'),
+        child: CustomScrollView(
+          slivers: [
+            const SliverToBoxAdapter(child: Text('Open editors')),
+            SliverDirectoryTree(
+              controller: controller,
+              onActivate: (row) => debugPrint('open ${row.node.path}'),
+              onRowSecondaryTap: (row, globalPosition) =>
+                  DirectoryTreeContextMenu.maybeOf<Object?>(
+                    context, // the Builder's context, below the menu host
+                  )?.open(row: row, globalPosition: globalPosition),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+```
+
 ## Callback types and details
 
 - `typedef DirectoryTreeRowBuilder<T> = Widget Function(BuildContext
@@ -198,6 +249,16 @@ isLast, style, indentWidth, color, width})`.
   `canDrag` takes the `List<TreeNode<T>>`, `canDrop` the drop details,
   `feedbackBuilder` the context and nodes.
 - `DirectoryTreeCheckboxMode`: `none`, `checks`, `selection`.
+
+## Accessibility
+
+Each row is one semantics node with its label, selected, expanded, and
+checked states, a level hint (`Level 1` for a top-level row), and tap,
+expand, collapse, and (with `onActivate`) "Open" actions. Translate with
+`semanticLabel`, `levelSemanticsHint`, `activateSemanticsLabel`,
+`loadingSemanticsLabel`, and `loadFailedSemanticsLabel` on the view or
+panel. With the default `rowExtent`, rows on touch platforms are at least
+48 pixels tall and grow with the text scale.
 
 ## Picker
 

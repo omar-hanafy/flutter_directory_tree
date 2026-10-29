@@ -5,10 +5,10 @@ description: Use when writing or reviewing Flutter code in a project that depend
 
 # Use flutter_directory_tree correctly
 
-flutter_directory_tree 2.x is a ground-up rewrite. Memory of 1.x
-(`TreeBuilder`, `nodeBuilder`, `SelectionShortcuts`, `ExpansionController`,
-string ids) produces code that does not compile, or worse, compiles and
-does nothing. Use the exact names below.
+flutter_directory_tree 2.x is a ground-up rewrite. Code written from the
+1.x API (`TreeBuilder`, `nodeBuilder`, `SelectionShortcuts`, `ExpansionController`)
+or with its string ids does not compile, or worse, compiles and does
+nothing. Use the exact names below.
 
 ## Step 0: inspect the project
 
@@ -188,7 +188,9 @@ state. The rows show the effective state, `controller.rows.expansion`, and
 `controller.isExpanded(id)` reads it. Persist
 `controller.expansion.toJson()` and restore it with
 `ExpansionState.fromJson(saved)`. Clearing the query (`query = ''`) closes
-the folders the search opened and shows the requested state again.
+the folders the search opened, except the ones leading to the focused row:
+the focused node stays revealed, and those folders join the requested
+`controller.expansion` (so a saved expansion can include them).
 
 ```dart
 void controllerBasics(DirectoryTreeController<Object?> controller) {
@@ -210,20 +212,8 @@ rows), `ensureVisible(id)`, and `globalRowRect(index)`.
 `lastRowsChange` (`TreeRowsChange`: `isReset`, `index`, `removed`,
 `inserted`, `previous`) says which block of `rows` the last update
 replaced. Read it inside a listener: when the change replaced the tree,
-`previous` becomes `null` after the listeners ran.
-
-```dart
-void watchRows(DirectoryTreeController<Object?> controller) {
-  controller.addListener(() {
-    final change = controller.lastRowsChange; // read it here, not later
-    if (change.isReset) {
-      debugPrint('all ${controller.rows.length} rows replaced');
-    } else {
-      debugPrint('at ${change.index}: -${change.removed} +${change.inserted}');
-    }
-  });
-}
-```
+`previous` becomes `null` after the listeners ran (the API reference
+has a `watchRows` example).
 
 ## Search
 
@@ -407,30 +397,37 @@ Future<List<NodeId>?> pickFolders(
   `loadStatus`, `isExpandable`, `matchRanges`, `controller`): the builder
   runs only when a row's details change. The row's semantics node already
   carries the label, so wrap your own label text in `ExcludeSemantics`.
-- Slivers: `DirectoryTreeKeyboard(controller:, onActivate:, child:
-  CustomScrollView(slivers: [..., SliverDirectoryTree(controller:,
-  onActivate:)]))`; give both the same `onActivate`. Add
-  `DirectoryTreeContextMenu` and `DirectoryTreeDragAndDropScope` (with
+- Slivers: build what `DirectoryTreeView` builds, outermost first: an
+  optional `DirectoryTreeDragAndDropScope`, the `DirectoryTreeContextMenu`,
+  the `DirectoryTreeKeyboard`, and a `CustomScrollView` holding a
+  `SliverDirectoryTree`. Keep the menu host above the keyboard widget:
+  Shift+F10 and the menu key reach it only from there, and a host inside
+  the keyboard opens only from secondary taps. The sliver opens no menu by
+  itself: wire its `onRowSecondaryTap` to
+  `DirectoryTreeContextMenu.maybeOf<T>(context)?.open(row: row, globalPosition: globalPosition)`
+  with a context below the host (a `Builder`), and give the keyboard and
+  the sliver the same `onActivate`. With drag and drop, set the sliver's
   `rowDecorator: DirectoryTreeDragAndDropScope.decorateRow` and
-  `secondaryTapOnLongPress: false` on the sliver) around the scroll view.
+  `secondaryTapOnLongPress: false`, and open the menu from the scope's
+  `onLongPressWithoutDrag`. The API reference shows the whole stack
+  (`composedExplorer`).
 
 ## Accessibility
 
-Each row is one semantics node with its label, selected, expanded, and
-checked states, a level hint (`Level 1` for a top-level row), and tap,
-expand, collapse, and (with `onActivate`) "Open" actions. Translate with
-`semanticLabel`, `levelSemanticsHint`, `activateSemanticsLabel`,
-`loadingSemanticsLabel`, and `loadFailedSemanticsLabel` on the view or
-panel. With the default `rowExtent`, rows on touch platforms are at least
-48 pixels tall and grow with the text scale.
+Each row is one semantics node with its label, states, level hint, and
+actions; the API reference lists the labels to translate.
 
 ## Performance rules for large trees
 
-- Focus and selection changes cost O(log rows) and rebuild only the rows
-  whose details changed. Opening a folder costs O(log rows + rows that
-  appear). Full passes happen only for a new tree, a query or filter
-  change, `compactFolders`/`showRoots` changes, and bulk commands
-  (`expandAll`, `selectAll`, `checkAll`).
+- Focus moves and `select` cost O(log rows), `toggleSelected`
+  O(selection size + log rows), and `extendSelection` O(range size + log
+  rows); the view rebuilds only the rows whose details changed.
+- Opening or closing one folder costs O(log rows + the rows that appear or
+  disappear) without calling the filter, plus copying the row list and the
+  expansion state, a plain copy that still grows with the visible rows.
+- Full passes happen only for a new tree, a query or filter change,
+  `compactFolders`/`showRoots` changes, and bulk commands (`expandAll`,
+  `selectAll`, `checkAll`).
 - Do not rebuild the `DirectoryTree` or assign `query` per frame; debounce
   typing (the search field does). Do not call `expandAll()` on a huge
   tree in response to input.

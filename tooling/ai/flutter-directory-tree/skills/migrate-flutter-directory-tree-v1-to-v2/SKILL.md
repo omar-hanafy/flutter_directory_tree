@@ -58,7 +58,12 @@ checklist).
    Move click handling out of `nodeBuilder` into the view (`onActivate`,
    `onRowTap`, `selectOnTap`, `expandOnTap`). Turn `nodeBuilder` into a
    `rowBuilder` that returns `DirectoryTreeRow(details: details, ...)`, or
-   drop it.
+   drop it. `title:` stays `title:`, but the 2.0 row's semantics node
+   already carries the row's label: a migrated `title: Text(node.name)`
+   that only shows the label again is read twice by screen readers, so
+   drop it (the default label is hidden from them) or wrap it in
+   `ExcludeSemantics`. A title that is more than the label, such as an
+   inline rename field, keeps its own semantics.
 6. Menus and icons: `ContextMenuDelegate` becomes `contextMenuBuilder:
    (context, details) => [MenuItemButton(...)]`; `IconProvider` becomes the
    theme's `iconSet` or the row's `leading` slot.

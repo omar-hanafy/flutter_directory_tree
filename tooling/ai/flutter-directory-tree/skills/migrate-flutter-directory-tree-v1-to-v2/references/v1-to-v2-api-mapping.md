@@ -61,7 +61,7 @@ alternative.
 |---|---|
 | `NodeBuilder` `(context, node, state)` | `DirectoryTreeRowBuilder<T>` `(context, details)` |
 | `NodeVisualState` | `DirectoryTreeRowDetails<T>` (`details.row.isExpanded`, `details.isSelected`, `details.row.depth`, `details.isHovered`; 1.x `isFocused` is `details.isSelected && details.hasFocus`) |
-| `TreeNodeTile(node:, state:, leading:, title:, trailing:)` | `DirectoryTreeRow(details:, leading:, title:, trailing:)` |
+| `TreeNodeTile(node:, state:, leading:, title:, trailing:)` | `DirectoryTreeRow(details:, leading:, title:, trailing:)`; the row's semantics node already carries the label, so a `title` that only repeats it goes in `ExcludeSemantics` (or is dropped for the default label) |
 | `TreeNodeTile(onTap:, onDoubleTap:)` | the view's `onRowTap` and `onActivate` |
 | `TreeNodeTile(subtitle:)`, `onTertiaryTap` | Removed (recipes in the skill) |
 | `ExpanderBuilder`, `expanderBuilder:` | `DirectoryTreeRow(expander: ...)` |
