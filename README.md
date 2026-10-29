@@ -337,7 +337,7 @@ next time they open. A failed reload keeps the contents, and opening the
 folder again retries; a compacted row such as `src/main` shows the loads
 of all its folders and retries them. Loads still running when the tree is
 replaced are discarded, and an open folder whose load was discarded loads
-again, also when it was a reload.
+again at once, also when it was a reload and while a search hides it.
 
 ### The local file system
 

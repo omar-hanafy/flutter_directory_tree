@@ -436,6 +436,134 @@ void main() {
         expectConsistentRows(controller);
       });
 
+      test('a chain that breaks out of sight keeps its open row open', () {
+        const p = NodeId('/r/p');
+        const pa = NodeId('/r/p/a');
+        const pc = NodeId('/r/p/a/b/c');
+        final controller = DirectoryTreeController<int>(
+          tree: DirectoryTree<int>.build(const [
+            TreeEntry.file('/r/p/a/b/c/x.txt'),
+            TreeEntry.file('/r/p/f.txt'),
+            TreeEntry.file('/r/z.txt'),
+          ]),
+          expansion: ExpansionState.withExpanded([r, p, pc]),
+          compactFolders: true,
+        );
+        expect(labelsOf(controller.rows), [
+          'r',
+          'p',
+          'a/b/c',
+          'x.txt',
+          'f.txt',
+          'z.txt',
+        ]);
+        controller
+          ..collapse(p)
+          ..updateTree((builder) => builder.addFile('/r/p/a/new.txt'))
+          ..expand(p);
+        expect(labelsOf(controller.rows), [
+          'r',
+          'p',
+          'a',
+          'b/c',
+          'x.txt',
+          'new.txt',
+          'f.txt',
+          'z.txt',
+        ]);
+        expect(controller.isExpanded(pa), isTrue);
+        expectConsistentRows(controller);
+      });
+
+      test('a chain that breaks keeps its closed row closed', () {
+        final controller = DirectoryTreeController<int>(
+          tree: DirectoryTree<int>.build(const [
+            TreeEntry.file('/r/a/b/x.txt'),
+            TreeEntry.file('/r/a/f.txt'),
+            TreeEntry.file('/r/q.txt'),
+          ]),
+          expansion: ExpansionState.withExpanded([r, aDir]),
+          compactFolders: true,
+        );
+        expect(labelsOf(controller.rows), ['r', 'a', 'b', 'f.txt', 'q.txt']);
+        // An atomic save seen as a removal and an addition: the chain forms
+        // with its row closed, then breaks again.
+        controller.updateTree((builder) => builder.remove('/r/a/f.txt'));
+        expect(labelsOf(controller.rows), ['r', 'a/b', 'q.txt']);
+        controller.updateTree((builder) => builder.addFile('/r/a/f.txt'));
+        expect(labelsOf(controller.rows), ['r', 'a', 'q.txt']);
+        expect(controller.isExpanded(aDir), isFalse);
+        expectConsistentRows(controller);
+      });
+
+      test('a chain that breaks in a state expanded by default', () {
+        final controller = DirectoryTreeController<int>(
+          tree: DirectoryTree<int>.build(const [
+            TreeEntry.file('/r/a/b/x.txt'),
+            TreeEntry.file('/r/q.txt'),
+          ]),
+          // Everything expanded except a, which the row a/b never consults.
+          expansion: ExpansionState.withCollapsed([aDir]),
+          compactFolders: true,
+        );
+        expect(labelsOf(controller.rows), ['r', 'a/b', 'x.txt', 'q.txt']);
+        controller.updateTree((builder) => builder.addFile('/r/a/f.txt'));
+        expect(labelsOf(controller.rows), [
+          'r',
+          'a',
+          'b',
+          'x.txt',
+          'f.txt',
+          'q.txt',
+        ]);
+        expectConsistentRows(controller);
+      });
+
+      test('a new tree restarts only the outermost load of a row', () async {
+        final loader = FakeLoader<int>();
+        const cDir = NodeId('/r/a/b/c');
+        final controller = DirectoryTreeController<int>(
+          tree: DirectoryTree<int>.build(const [
+            TreeEntry.directory('/r/a/b/c'),
+            TreeEntry.file('/r/z.txt'),
+          ]),
+          expansion: ExpansionState.withExpanded([r]),
+          compactFolders: true,
+          loadChildren: loader.call,
+        );
+        expect(labelsOf(controller.rows), ['r', 'a/b/c', 'z.txt']);
+        controller.expand(cDir);
+        final reloads = [
+          controller.reloadChildren(aDir),
+          controller.reloadChildren(bDir),
+        ];
+        await settle();
+        expect(loader.calls, hasLength(3));
+        controller.updateTree((builder) => builder.addFile('/r/y.txt'));
+        await settle();
+        expect(loader.callsFor(aDir), hasLength(2));
+        expect(loader.callsFor(bDir), hasLength(1));
+        expect(loader.callsFor(cDir), hasLength(1));
+        expect(
+          rowLoadStatus(controller, controller.rows[1]),
+          DirectoryLoadStatus.loading,
+        );
+        // The futures of the discarded reloads follow the restart.
+        var done = 0;
+        for (final reload in reloads) {
+          unawaited(reload.then((_) => done++));
+        }
+        for (final call in loader.calls.take(3)) {
+          call.completer.complete(const <TreeEntry<int>>[]);
+        }
+        await settle();
+        expect(done, 0);
+        loader.complete(aDir, const [TreeEntry.directory('/r/a/b/c')]);
+        await settle();
+        expect(done, 2);
+        expectConsistentRows(controller);
+      });
+
       test('a new chain end loads while filtering', () async {
         final loader = FakeLoader<int>();
         const d = NodeId('/r/d');

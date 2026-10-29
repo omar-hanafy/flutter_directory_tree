@@ -367,37 +367,36 @@ final class _Run {
     }
   }
 
-  /// A tree change prunes the requested state, and a directory of a
-  /// visible compacted row that stops continuing the row's chain takes the
-  /// row's state.
+  /// A tree change prunes the requested state, and every directory that
+  /// continued a compacted chain but no longer does takes the state of
+  /// that chain's deepest directory, whether the row showed or not.
   void modelTreeChange(_Snapshot before) {
     final tree = controller.tree;
     if (identical(tree, before.tree)) return;
-    var next = model.prune(tree);
+    final pruned = model.prune(tree);
+    var next = pruned;
     if (before.compactFolders && controller.compactFolders) {
-      for (final row in before.rows) {
-        if (row.node is! DirectoryNode<int>) continue;
-        var parentId = row.node.parent;
-        while (parentId != null) {
-          final parent = before.tree[parentId];
-          if (parent is! DirectoryNode<int> ||
-              parent.children.length != 1 ||
-              (parent.isRoot && !before.showRoots)) {
-            break;
-          }
-          final now = tree[parentId];
-          final continues =
-              now is DirectoryNode<int> &&
-              now.children.length == 1 &&
-              tree[now.children.first] is DirectoryNode<int>;
-          if (now is DirectoryNode<int> &&
-              !continues &&
-              next.isExpanded(row.id)) {
-            next = next.expand(parentId);
-            _cover('chain broke open');
-          }
-          parentId = parent.parent;
+      bool continued(TreeNode<int>? node) =>
+          node is DirectoryNode<int> &&
+          node.children.length == 1 &&
+          !(node.isRoot && !before.showRoots) &&
+          before.tree[node.children.first] is DirectoryNode<int>;
+      for (final node in before.tree.nodes) {
+        if (!continued(node)) continue;
+        final now = tree[node.id];
+        if (now is! DirectoryNode<int> ||
+            (now.children.length == 1 &&
+                tree[now.children.first] is DirectoryNode<int>)) {
+          continue;
         }
+        var end = node as DirectoryNode<int>;
+        while (continued(end)) {
+          end = before.tree[end.children.first]! as DirectoryNode<int>;
+        }
+        final expanded = pruned.isExpanded(end.id);
+        if (pruned.isExpanded(node.id) == expanded) continue;
+        next = next.setExpanded(node.id, expanded: expanded);
+        _cover(expanded ? 'chain broke open' : 'chain broke closed');
       }
     }
     model = next;
@@ -553,6 +552,39 @@ final class _Run {
           }
           for (var i = random.nextInt(4); i > 0; i--) {
             builder.add(_randomEntry(random, nextData++));
+          }
+          // Often break a chain: a file in a directory whose only child is
+          // a directory, mostly one whose state differs from the deepest
+          // directory's (the row's).
+          bool continues(TreeNode<int>? node) =>
+              node is DirectoryNode<int> &&
+              node.children.length == 1 &&
+              tree[node.children.first] is DirectoryNode<int>;
+          final expansion = controller.expansion;
+          final chains = <DirectoryNode<int>>[];
+          final differing = <DirectoryNode<int>>[];
+          for (final node in tree.nodes) {
+            if (node is! DirectoryNode<int> || !continues(node)) continue;
+            var end = node;
+            while (continues(end)) {
+              end = tree[end.children.first]! as DirectoryNode<int>;
+            }
+            chains.add(node);
+            if (expansion.isExpanded(node.id) != expansion.isExpanded(end.id)) {
+              differing.add(node);
+            }
+          }
+          if (chains.isNotEmpty && random.nextBool()) {
+            final pool = differing.isNotEmpty && random.nextInt(4) > 0
+                ? differing
+                : chains;
+            final chain = pool[random.nextInt(pool.length)];
+            builder.add(
+              TreeEntry<int>.file(
+                '${chain.path}/split${nextData++}.txt',
+                data: nextData,
+              ),
+            );
           }
         });
         log.add('tree = edited (${next.length} nodes)');
@@ -1054,6 +1086,8 @@ void main() {
       'failed',
       'checked',
       'compaction off',
+      'chain broke open',
+      'chain broke closed',
     ]) {
       expect(
         _coverage[situation] ?? 0,
