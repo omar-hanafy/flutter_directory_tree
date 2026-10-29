@@ -86,6 +86,12 @@ class DirectoryTreeRow<T> extends StatelessWidget {
   ///
   /// It gets the space left between [leading] and [trailing]; keep it to
   /// one line so it fits the fixed row height.
+  ///
+  /// Inside a [SliverDirectoryTree], the row's semantics node already
+  /// carries the row's label, so the default label is hidden from screen
+  /// readers. A title you pass keeps its own semantics, so an inline rename
+  /// field stays reachable; wrap a title that only shows the label again
+  /// in [ExcludeSemantics] so it is not read twice.
   final Widget? title;
 
   /// An extra widget at the end edge of the row, such as a size or a
@@ -125,15 +131,20 @@ class DirectoryTreeRow<T> extends StatelessWidget {
     } else {
       labelStyle = theme.labelStyle;
     }
-    Widget label =
-        title ??
-        DirectoryTreeLabel(
-          text: row.label,
-          matchRanges: details.matchRanges,
-          style: labelStyle,
-        );
-    if (RowSemanticsScope.isInside(context)) {
-      label = ExcludeSemantics(child: label);
+    final title = this.title;
+    final Widget label;
+    if (title != null) {
+      label = title;
+    } else {
+      final text = DirectoryTreeLabel(
+        text: row.label,
+        matchRanges: details.matchRanges,
+        style: labelStyle,
+      );
+      // Inside the sliver the row's semantics node carries the label.
+      label = RowSemanticsScope.isInside(context)
+          ? ExcludeSemantics(child: text)
+          : text;
     }
 
     final icon =

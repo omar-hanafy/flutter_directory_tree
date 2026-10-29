@@ -227,7 +227,9 @@ The controller keeps expansion, selection, checks, and focus by id, so
 `lib` stays selected, and the new file is unchecked, which makes `lib`
 partial. Ids that no longer exist are dropped, and the focus moves to the
 nearest surviving ancestor. On screen, the first visible row keeps its
-position.
+position, also during a fling or an animated `ensureVisible`, and when the
+row height changes with the text scale. An animation your app starts with
+`ScrollController.animateTo` still ends at the offset it was given.
 
 ## Search
 
@@ -784,11 +786,14 @@ long-press action when the view has a context menu or
 at depth 1). With `onActivate`, rows also offer an "Open" action, so touch
 screen reader users, who have no double-click and no Enter key, can
 activate them. A folder that is loading or failed to load says so, and a
-failed one offers an action that retries the load.
+failed one offers an action that retries the load. The web has no custom
+or expand actions, so there the arrow stays a button of its own (Expand,
+Collapse, or Refresh), and rows activate with Enter or a double-click.
 
-While the tree has the keyboard focus, the focused row is the focused
-semantics node, so screen readers follow the arrow keys. Rows grow with
-the text scale, and on touch platforms they are at least 48 pixels tall.
+While the tree's own focus node has the keyboard focus, the focused row is
+the focused semantics node, so screen readers follow the arrow keys; a text
+field inside a row keeps the focus to itself. Rows grow with the text
+scale, and on touch platforms they are at least 48 pixels tall.
 
 ```dart
 final view = DirectoryTreeView(
@@ -800,9 +805,11 @@ final view = DirectoryTreeView(
 
 `semanticLabel` names the whole tree, and `levelSemanticsHint` translates
 the level hint; `activateSemanticsLabel`, `loadingSemanticsLabel`, and
-`loadFailedSemanticsLabel` translate the other English defaults. A custom row should not repeat the label in its own
-semantics; wrap such text in `ExcludeSemantics`, as the custom row above
-does.
+`loadFailedSemanticsLabel` translate the other English defaults. A custom
+row, or a custom `DirectoryTreeRow.title`, should not repeat the label in
+its own semantics; wrap such text in `ExcludeSemantics`, as the custom row
+above does. Interactive content, such as a rename field, keeps its own
+semantics.
 
 ## Migrating from 1.x
 

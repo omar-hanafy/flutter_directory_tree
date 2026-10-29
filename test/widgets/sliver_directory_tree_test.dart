@@ -444,6 +444,35 @@ void main() {
       semantics.dispose();
     });
 
+    testWidgets('a custom title keeps its own semantics', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      final text = TextEditingController(text: 'README.md');
+      addTearDown(text.dispose);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          rowBuilder: (context, details) => details.row.id == readme
+              ? DirectoryTreeRow<int>(
+                  details: details,
+                  title: TextField(controller: text),
+                )
+              : DirectoryTreeRow<int>(details: details),
+        ),
+      );
+      // The rename field stays reachable for screen readers.
+      expect(
+        find.semantics.byPredicate(
+          (node) => node.getSemanticsData().flagsCollection.isTextField,
+        ),
+        findsOne,
+      );
+      // The default label is not read twice.
+      expect(tester.getSemantics(rowOf(lib)), isSemantics(label: 'lib'));
+      semantics.dispose();
+    });
+
     testWidgets('an unrelated Focus above a bare sliver is not the tree', (
       tester,
     ) async {
