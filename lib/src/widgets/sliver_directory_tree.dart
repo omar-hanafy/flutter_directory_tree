@@ -85,11 +85,19 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 /// is looking at. When that row is gone, the next visible row that still
 /// exists keeps its place instead, and when none does, the scroll offset is
 /// only clamped to the new content. When the whole tree is scrolled past,
-/// the content after it stays in place. This holds while the view scrolls
-/// too: a fling keeps its momentum from the corrected position, an
-/// animation the app started lands on the content it was heading to, and
-/// an animated [DirectoryTreeController.ensureVisible] still ends with its
-/// row where it asked.
+/// the content after it stays in place. The same holds when the row height
+/// changes, for example with the text scale.
+///
+/// While the view scrolls: a fling continues from the corrected position
+/// with its momentum, and an animated
+/// [DirectoryTreeController.ensureVisible] is aimed again at its row's new
+/// place for the time it has left (when the row is already where it was
+/// asked to be, the scroll stops there). An animation the app started
+/// with [ScrollPosition.animateTo] keeps its absolute target, so
+/// `animateTo(0)` still ends at the top; the content then moves when it
+/// gets there. A correction does not notify scroll listeners itself (as
+/// a layout correction does not); the next scroll offset they see is the
+/// corrected one.
 ///
 /// Rows inserted by an incremental expand or a lazy load (a
 /// [TreeRowsChange] splice) fade and slide in over
@@ -404,14 +412,6 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   // The animation of the latest animated showRow while it runs.
   _RowAnimation? _rowAnimation;
 
-  // A fling or an animation sets absolute scroll offsets on every frame,
-  // which would undo a correction: while the activity that was running
-  // when a correction was applied keeps running, every offset it sets is
-  // moved by the total correction it has not seen (_carried).
-  ScrollPosition? _carryPosition;
-  ScrollActivity? _carryActivity;
-  double _carried = 0;
-
   _InsertedBlock? _insertedBlock;
 
   // The tree and checks mode the cached rows' checkboxes were built for:
@@ -488,7 +488,6 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       ..removeListener(_handleControllerChanged)
       ..detachViewport(this);
     _clickWindow?.cancel();
-    _stopCarrying();
     _rowAnimation?.complete();
     _rowAnimation = null;
     super.dispose();
@@ -560,6 +559,13 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         _checksMode = mode;
       }
     }
+    // A new row height (a theme or text scale change) keeps the first
+    // visible row in place, as a rows change does.
+    final extent = theme.rowExtent!;
+    final render = _renderSliver();
+    if (render != null && render.itemExtent != extent) {
+      _anchorScrollOffset(extent: extent);
+    }
     final snapshot = _Snapshot<T>(
       rows: _rows,
       focusedId: controller.focusedId,
@@ -571,7 +577,7 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     _appliedAnchorCorrection = 0;
     _shownAnchor = null;
     return SliverFixedExtentList.builder(
-      itemExtent: theme.rowExtent!,
+      itemExtent: extent,
       itemCount: snapshot.rows.length,
       itemBuilder: (context, index) => _buildRow(snapshot, index),
       findChildIndexCallback: (key) => _indexOfKey(snapshot.rows, key),
@@ -871,14 +877,15 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     return scrollable.position;
   }
 
-  /// Keeps the first visible row where it is on screen after the rows
-  /// changed, by correcting the scroll offset before the next layout.
+  /// Keeps the first visible row where it is on screen after the rows or
+  /// the row height ([extent], the render sliver's by default) changed, by
+  /// correcting the scroll offset before the next layout.
   ///
   /// The correction is computed against the rows of the latest build, which
   /// are the rows the render sliver was last laid out with, and the part
   /// already applied since then is subtracted, so several changes before
   /// one frame add up to the right total.
-  void _anchorScrollOffset() {
+  void _anchorScrollOffset({double? extent}) {
     final base = _snapshot?.rows;
     final render = _renderSliver();
     final position = _position;
@@ -890,16 +897,26 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         !position.hasContentDimensions) {
       return;
     }
-    final extent = render.itemExtent;
+    final oldExtent = render.itemExtent;
+    final newExtent = extent ?? oldExtent;
     final shown = _shownAnchor;
     final double desired;
     if (shown != null) {
-      final offset = _shownRowShift(shown, render, extent) * extent;
+      final moved = _shownRowMove(shown, render, oldExtent);
+      final offset = moved == null
+          ? 0.0
+          : moved.to * newExtent - moved.from * oldExtent;
       desired = render.constraints.growthDirection == GrowthDirection.reverse
           ? -offset
           : offset;
     } else {
-      desired = _anchorCorrection(base, _rows, render.constraints, extent);
+      desired = _anchorCorrection(
+        base,
+        _rows,
+        render.constraints,
+        oldExtent,
+        newExtent,
+      );
     }
     final applied = shown?.applied ?? _appliedAnchorCorrection;
     final delta = desired - applied;
@@ -909,14 +926,14 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final range = _predictedScrollRange(
       render,
       position,
-      _rows.length * extent - render.geometry!.scrollExtent,
+      _rows.length * newExtent - render.geometry!.scrollExtent,
     );
     final pixels = position.pixels;
     final target = clampDouble(pixels + delta, range.min, range.max);
     final correction = target - pixels;
     if (correction != 0) {
       position.correctBy(correction);
-      _carryCorrection(position, correction);
+      _keepCorrection(position, correction);
     }
     if (shown != null) {
       _shownAnchor = (
@@ -930,16 +947,16 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     }
   }
 
-  /// How many rows the row that showRow jumped to moved since: when it is
-  /// gone, how many the next surviving row of the screen moved; 0 when
-  /// none of them survives.
-  int _shownRowShift(
+  /// Where the row that showRow jumped to moved since (its index then and
+  /// now); when it is gone, where the next surviving row of the screen
+  /// moved; null when none of them survives.
+  ({int from, int to})? _shownRowMove(
     ({NodeId id, int index, TreeRows<T> rows, double applied}) shown,
     RenderSliver render,
     double extent,
   ) {
     final index = _rows.indexOfNode(shown.id);
-    if (index >= 0) return index - shown.index;
+    if (index >= 0) return (from: shown.index, to: index);
     // The rows that can be on screen below the shown row.
     final visible = extent <= 0
         ? 0
@@ -947,79 +964,58 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final end = math.min(shown.rows.length, shown.index + 1 + visible);
     for (var i = shown.index + 1; i < end; i++) {
       final next = _rows.indexOfNode(shown.rows[i].id);
-      if (next >= 0) return next - i;
+      if (next >= 0) return (from: i, to: next);
     }
-    return 0;
+    return null;
   }
 
-  /// Keeps [correction], just applied to [position], when the running
-  /// scroll activity sets absolute offsets: a [BallisticScrollActivity]
-  /// (a fling, or the settling after a drag) or a [DrivenScrollActivity]
-  /// (an animation, such as [ScrollPosition.animateTo]).
+  /// Keeps [correction], just applied to [position], from being undone by
+  /// a running scroll activity that sets absolute offsets.
   ///
-  /// Those activities compute each frame's offset from their own start, so
-  /// the next frame would undo the correction. Until the activity ends (or
-  /// is replaced, for example when a new layout restarts a fling from the
-  /// corrected offset), every offset it sets is moved by the corrections it
-  /// has not seen: a fling keeps its momentum, and an animation lands on
-  /// the content it was heading to.
-  void _carryCorrection(ScrollPosition position, double correction) {
+  /// * A fling ([BallisticScrollActivity]) starts again from the corrected
+  ///   offset with its current velocity, so it keeps its momentum.
+  /// * An animated showRow is aimed again by [_retargetRowAnimation], from
+  ///   the corrected offset.
+  /// * An animation the app started ([ScrollPosition.animateTo]) keeps its
+  ///   absolute target: `animateTo(0)` still ends at the top.
+  ///
+  /// The correction itself does not notify, and every later offset comes
+  /// from an activity that starts at the corrected one, so scroll
+  /// listeners only ever see real offsets.
+  void _keepCorrection(ScrollPosition position, double correction) {
     final activity = _activityOf(position);
-    if (activity is! BallisticScrollActivity &&
-        activity is! DrivenScrollActivity) {
-      return;
+    if (activity is BallisticScrollActivity) {
+      activity.delegate.goBallistic(activity.velocity);
+    } else if (activity != null &&
+        identical(activity, _rowAnimation?.activity)) {
+      _rowAnimation!.correction += correction;
     }
-    if (!identical(_carryPosition, position) ||
-        !identical(_carryActivity, activity)) {
-      _stopCarrying();
-      _carryPosition = position..addListener(_handleCarriedScroll);
-      _carryActivity = activity;
-    }
-    _carried += correction;
-  }
-
-  void _handleCarriedScroll() {
-    final position = _carryPosition;
-    if (position == null) return;
-    if (!identical(_activityOf(position), _carryActivity) ||
-        !position.hasPixels) {
-      _stopCarrying();
-      return;
-    }
-    // The activity just set an offset of its own. The correction does not
-    // notify, and the next layout sees the corrected offset (a fling
-    // restarts from it there).
-    position.correctBy(_carried);
   }
 
   /// The running activity of [position].
   ///
   /// [ScrollPosition.activity] is meant for subclasses, but only the
-  /// activity tells an offset set relative to the current one (a drag)
-  /// from one computed from the activity's own start (a fling or an
-  /// animation), and the sliver does not own the position to subclass it.
+  /// activity tells a fling, or the sliver's own animation, from the other
+  /// activities, and the sliver does not own the position to subclass it.
   static ScrollActivity? _activityOf(ScrollPosition position) =>
       // Read only, to compare identities and types; see above.
       // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
       position.activity;
 
-  void _stopCarrying() {
-    _carryPosition?.removeListener(_handleCarriedScroll);
-    _carryPosition = null;
-    _carryActivity = null;
-    _carried = 0;
-  }
-
   /// The change of the scroll offset that keeps the first visible row of
   /// [base] at its place in [rows], for a sliver laid out with
-  /// [constraints]; 0 when nothing needs to move.
+  /// [constraints] and rows of [oldExtent] that are now [newExtent] high;
+  /// 0 when nothing needs to move.
   static double _anchorCorrection(
     TreeRows<Object?> base,
     TreeRows<Object?> rows,
     SliverConstraints constraints,
-    double extent,
+    double oldExtent,
+    double newExtent,
   ) {
-    if (identical(base, rows) || extent <= 0) return 0;
+    if ((identical(base, rows) && oldExtent == newExtent) || oldExtent <= 0) {
+      return 0;
+    }
     final scrollOffset = constraints.scrollOffset;
     // The first pixel of the sliver that is not under a pinned header.
     final leading = scrollOffset + math.max(0.0, constraints.overlap);
@@ -1027,20 +1023,20 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     if (leading <= 0) return 0;
     final oldCount = base.length;
     double offset = 0;
-    if (leading >= oldCount * extent) {
+    if (leading >= oldCount * oldExtent) {
       // The tree is scrolled past: keep what follows it in place.
-      offset = (rows.length - oldCount) * extent;
+      offset = rows.length * newExtent - oldCount * oldExtent;
     } else {
-      final first = leading ~/ extent;
+      final first = leading ~/ oldExtent;
       final end = math.min(
         oldCount,
-        ((scrollOffset + constraints.remainingPaintExtent) / extent).ceil(),
+        ((scrollOffset + constraints.remainingPaintExtent) / oldExtent).ceil(),
       );
       // The first visible row that still has a row keeps its place.
       for (var i = first; i < end; i++) {
         final index = rows.indexOfNode(base[i].id);
         if (index >= 0) {
-          offset = (index - i) * extent;
+          offset = index * newExtent - i * oldExtent;
           break;
         }
       }
@@ -1201,9 +1197,25 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       id: id,
       alignment: alignment,
       curve: curve,
-      end: _frameTime() + duration,
+      duration: duration,
     );
     _rowAnimation = animation;
+    // The animation's clock starts with its first frame and reads the
+    // time stamps the scroll animation runs on (scaled by timeDilation),
+    // not the time it was asked for: an app idle for a while has no
+    // recent frame.
+    void track(Duration timeStamp) {
+      if (animation.done.isCompleted) return;
+      animation
+        ..start ??= timeStamp
+        ..lastFrame = timeStamp;
+      SchedulerBinding.instance.scheduleFrameCallback(
+        track,
+        rescheduling: true,
+      );
+    }
+
+    SchedulerBinding.instance.scheduleFrameCallback(track);
     _animateLeg(animation, position, target, duration);
     return animation.done.future;
   }
@@ -1251,9 +1263,13 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     return clamped;
   }
 
-  /// The time stamp of the latest frame: the clock of row animations.
-  static Duration _frameTime() =>
-      SchedulerBinding.instance.currentSystemFrameTimeStamp;
+  /// What is left of [animation]'s duration, on the frame clock.
+  static Duration _timeLeft(_RowAnimation animation) {
+    final start = animation.start;
+    final lastFrame = animation.lastFrame;
+    if (start == null || lastFrame == null) return animation.duration;
+    return animation.duration - (lastFrame - start);
+  }
 
   /// Animates [position] to [target] over [duration] as the current leg of
   /// [animation], which completes when this leg ends, unless a later leg
@@ -1270,7 +1286,10 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       curve: animation.curve,
     );
     final activity = _activityOf(position);
-    animation.activity = activity;
+    animation
+      ..activity = activity
+      ..target = target
+      ..correction = 0;
     unawaited(
       leg.whenComplete(() {
         if (!identical(animation.activity, activity)) return;
@@ -1284,7 +1303,8 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   /// the row's new place, from the corrected offset, in the time left.
   ///
   /// The animation targets an absolute offset, which no longer shows the
-  /// row once rows were added or removed above it.
+  /// row once rows were added or removed above it, and its next frame
+  /// would undo the anchor correction.
   void _retargetRowAnimation() {
     final animation = _rowAnimation;
     if (animation == null) return;
@@ -1299,28 +1319,52 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       return;
     }
     final index = _rows.indexOfNode(animation.id);
-    // A row that is gone has no new place: the animation keeps going,
-    // moved with the content by the anchor correction.
-    if (index < 0 || !_hasLayout(render) || !position.hasContentDimensions) {
-      return;
+    final double? target;
+    if (index < 0) {
+      // A row that is gone has no new place: keep heading for the content
+      // the animation was heading to.
+      if (animation.correction == 0) return;
+      target = animation.target + animation.correction;
+    } else {
+      if (!_hasLayout(render) || !position.hasContentDimensions) return;
+      target = _offsetToShow(
+        render,
+        position,
+        _rows,
+        index,
+        animation.alignment,
+      );
+      if (target == null) {
+        // The row is already where it was asked to be: stop here.
+        _endRowAnimation(animation, position, null);
+        return;
+      }
+      if (animation.correction == 0 &&
+          (target - animation.target).abs() < precisionErrorTolerance) {
+        // Nothing moved for this animation.
+        return;
+      }
     }
-    final target = _offsetToShow(
-      render,
-      position,
-      _rows,
-      index,
-      animation.alignment,
-    );
-    final left = animation.end - _frameTime();
-    if (target == null || left <= Duration.zero) {
-      // Already there, or out of time: end at the row now.
-      animation.activity = null;
-      if (target != null) position.jumpTo(target);
-      animation.complete();
-      _rowAnimation = null;
+    final left = _timeLeft(animation);
+    if (left <= Duration.zero) {
+      _endRowAnimation(animation, position, target);
       return;
     }
     _animateLeg(animation, position, target, left);
+  }
+
+  /// Ends [animation] now: at [target], or where the scroll is when null.
+  void _endRowAnimation(
+    _RowAnimation animation,
+    ScrollPosition position,
+    double? target,
+  ) {
+    animation.activity = null;
+    // A jump replaces the animation's activity, which would otherwise keep
+    // heading for its old offset.
+    position.jumpTo(target ?? position.pixels);
+    animation.complete();
+    if (identical(_rowAnimation, animation)) _rowAnimation = null;
   }
 
   /// The bounds of the row at [index] in the coordinates
@@ -1441,20 +1485,27 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
 }
 
 /// An animated showRow: the row it shows, where in the viewport, its curve,
-/// and when it ends. [activity] is the scroll activity of its current leg.
+/// and its duration from [start], the time stamp of its first frame
+/// ([lastFrame] is that of its latest one).
+/// [activity] and [target] belong to its current leg; [correction] is the
+/// anchor correction applied since that leg started.
 final class _RowAnimation {
   _RowAnimation({
     required this.id,
     required this.alignment,
     required this.curve,
-    required this.end,
+    required this.duration,
   });
 
   final NodeId id;
   final double? alignment;
   final Curve curve;
-  final Duration end;
+  final Duration duration;
+  Duration? start;
+  Duration? lastFrame;
   ScrollActivity? activity;
+  double target = 0;
+  double correction = 0;
   final Completer<void> done = Completer<void>();
 
   void complete() {

@@ -706,13 +706,14 @@ void main() {
       expect(shownTop(tester, wideId(70)), 0);
     });
 
-    testWidgets('a reset during an app animation keeps the anchor', (
-      tester,
-    ) async {
+    testWidgets('an app animation keeps its absolute target, and scroll '
+        'listeners see the real offsets', (tester) async {
       final controller = wideController(100);
       addTearDown(controller.dispose);
       final scroll = ScrollController();
       addTearDown(scroll.dispose);
+      final seen = <double>[];
+      scroll.addListener(() => seen.add(scroll.offset));
       await tester.pumpWidget(
         treeApp(controller: controller, scrollController: scroll),
       );
@@ -725,17 +726,173 @@ void main() {
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 100));
-      final before = firstRow(tester, controller, scroll.offset);
       controller.tree = wideTree(100, extra: early);
-      await tester.pump();
-      expect(
-        (shownTop(tester, before.id) - before.top).abs(),
-        lessThan(5 * rowExtent),
-      );
       await tester.pumpAndSettle();
-      // The animation lands on the content it was heading to.
-      expect(scroll.offset, 60 * rowExtent);
-      expect(shownTop(tester, wideId(39)), 0);
+      // animateTo(x) ends at x, whatever changed meanwhile.
+      expect(scroll.offset, 40 * rowExtent);
+      expect(seen.last, scroll.offset);
+
+      // So animateTo(0) still reaches the top.
+      unawaited(
+        scroll.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.linear,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      controller.tree = wideTree(100, extra: [...early, 'a99.txt']);
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 0);
+      expect(seen.last, 0);
+    });
+
+    testWidgets('scroll listeners see the real offsets of a corrected fling '
+        'and of a re-aimed reveal', (tester) async {
+      final controller = wideController(1000);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      final seen = <double>[];
+      scroll.addListener(() => seen.add(scroll.offset));
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      await tester.fling(
+        find.byType(CustomScrollView),
+        const Offset(0, -200),
+        2000,
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+      controller.tree = wideTree(1000, extra: early);
+      // The correction itself is silent, as layout corrections are; the
+      // restarted fling reports the corrected offsets from its first move.
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(seen.last, scroll.offset);
+      final afterCorrection = seen.length;
+      await tester.pumpAndSettle();
+      expect(seen.last, scroll.offset);
+      // No value after the correction is off by it: offsets only grow.
+      final later = seen.sublist(afterCorrection - 1);
+      for (var i = 1; i < later.length; i++) {
+        expect(later[i], greaterThanOrEqualTo(later[i - 1]));
+      }
+
+      unawaited(
+        controller.ensureVisible(
+          wideId(600),
+          alignment: 0,
+          duration: const Duration(milliseconds: 300),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      controller.tree = wideTree(1000, extra: [...early, 'a99.txt']);
+      await tester.pump(const Duration(milliseconds: 16));
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(seen.last, scroll.offset);
+      await tester.pumpAndSettle();
+      expect(seen.last, scroll.offset);
+      expect(shownTop(tester, wideId(600)), 0);
+    });
+
+    testWidgets('an animated reveal whose row comes into view stops there', (
+      tester,
+    ) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      double? doneAt;
+      unawaited(
+        controller
+            .ensureVisible(
+              wideId(60),
+              duration: const Duration(milliseconds: 1000),
+              curve: Curves.linear,
+            )
+            .then((_) => doneAt = scroll.offset),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      // Files 30 to 59 go away: file 60 is now on screen.
+      controller.tree = DirectoryTree<int>.build([
+        for (var i = 0; i < 100; i++)
+          if (i < 30 || i >= 60) TreeEntry<int>.file('/w/${wideName(i)}'),
+      ]);
+      await tester.pumpAndSettle();
+      expect(doneAt, isNotNull);
+      expect(scroll.offset, doneAt);
+      final top = shownTop(tester, wideId(60));
+      expect(top, greaterThanOrEqualTo(0));
+      expect(top, lessThanOrEqualTo(viewportHeight - rowExtent));
+    });
+
+    testWidgets('an animated reveal started after an idle time keeps '
+        'animating when re-aimed', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      // No frames for longer than the animation.
+      await tester.binding.delayed(const Duration(seconds: 5));
+      unawaited(
+        controller.ensureVisible(
+          wideId(70),
+          alignment: 0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.linear,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      controller.tree = wideTree(100, extra: early);
+      await tester.pump(const Duration(milliseconds: 16));
+      expect(scroll.position.activity, isA<DrivenScrollActivity>());
+      expect(shownTop(tester, wideId(70)), greaterThan(0));
+      await tester.pumpAndSettle();
+      expect(shownTop(tester, wideId(70)), 0);
+    });
+
+    testWidgets('the first visible row stays in place when the row height '
+        'changes', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      scroll.jumpTo(40 * rowExtent + 10);
+      await tester.pump();
+      expect(shownTop(tester, wideId(39)), -10);
+
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          scrollController: scroll,
+          theme: const DirectoryTreeThemeData(
+            rowExtent: 50,
+            animationDuration: Duration.zero,
+          ),
+        ),
+      );
+      expect(shownTop(tester, wideId(39)), -10);
+      expect(scroll.offset, 40 * 50 + 10);
+
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      expect(shownTop(tester, wideId(39)), -10);
+      expect(scroll.offset, 40 * rowExtent + 10);
     });
 
     testWidgets('when the revealed row disappears before the next frame, the '
