@@ -408,7 +408,8 @@ void main() {
       }
 
       await tester.pumpWidget(unbounded(null));
-      expect(tester.getSize(_found), const Size(48, 36));
+      // The default theme of the Android test platform pads rows to 48 px.
+      expect(tester.getSize(_found), const Size(48, 48));
 
       await tester.pumpWidget(
         unbounded(const DirectoryTreeThemeData(rowExtent: 44)),

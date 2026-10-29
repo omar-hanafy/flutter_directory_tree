@@ -1,7 +1,10 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_directory_tree/src/theme/directory_tree_icon_set.dart';
-import 'package:flutter_directory_tree/src/theme/directory_tree_theme.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 ThemeData _theme(Brightness brightness, {VisualDensity? density}) => ThemeData(
@@ -10,6 +13,9 @@ ThemeData _theme(Brightness brightness, {VisualDensity? density}) => ThemeData(
     brightness: brightness,
   ),
   visualDensity: density ?? VisualDensity.standard,
+  // Unpadded, so the row height follows the density alone; the touch
+  // floor has its own tests.
+  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
 );
 
 /// [_theme] as `Theme.of` returns it in an app: with the English text
@@ -201,6 +207,22 @@ void main() {
       expect(light.guideColor, isNot(dark.guideColor));
     });
 
+    test('rowExtent is at least 48 while tap targets are padded', () {
+      double extent(VisualDensity density) => DirectoryTreeThemeData.fallback(
+        _theme(
+          Brightness.light,
+          density: density,
+        ).copyWith(materialTapTargetSize: MaterialTapTargetSize.padded),
+      ).rowExtent!;
+
+      expect(extent(VisualDensity.standard), 48);
+      expect(extent(VisualDensity.compact), 48);
+      expect(
+        extent(const VisualDensity(vertical: VisualDensity.maximumDensity)),
+        52,
+      );
+    });
+
     test('rowExtent follows the vertical visual density, never below 20', () {
       double extent(VisualDensity density) => DirectoryTreeThemeData.fallback(
         _theme(Brightness.light, density: density),
@@ -235,7 +257,8 @@ void main() {
         DirectoryTreeThemeData.fallback(
           ThemeData(platform: TargetPlatform.android),
         ).rowExtent,
-        36,
+        // Touch platforms pad tap targets to 48 px.
+        48,
       );
     });
 
@@ -965,4 +988,182 @@ void main() {
       expect(theme.toStringDeep(), contains('indentWidth: 30.0'));
     });
   });
+
+  group('default rowExtent for large text and touch', () {
+    // The tallest label line in the rows of a default tree under [scaler].
+    Future<({double row, double text})> measure(
+      WidgetTester tester, {
+      required TextScaler scaler,
+      ThemeData? theme,
+      DirectoryTreeThemeData data = const DirectoryTreeThemeData(),
+    }) async {
+      final controller = DirectoryTreeController<Object?>(
+        tree: DirectoryTree<Object?>.build(const [
+          TreeEntry<Object?>.file('/r/a.txt'),
+          TreeEntry<Object?>.directory('/r/b'),
+        ]),
+        expansion: const ExpansionState.expanded(),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MediaQuery(
+          data: MediaQueryData.fromView(tester.view)
+              .copyWith(textScaler: scaler),
+          child: MaterialApp(
+            theme: theme,
+            home: Scaffold(
+              body: DirectoryTreeTheme(
+                data: data,
+                child: CustomScrollView(
+                  slivers: [
+                    SliverDirectoryTree<Object?>(controller: controller),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final row = tester.getSize(find.byType(DirectoryTreeRow<Object?>).first);
+      var text = 0.0;
+      for (final paragraph in tester.renderObjectList<RenderParagraph>(
+        find.descendant(
+          of: find.byType(DirectoryTreeLabel),
+          matching: find.byType(RichText),
+        ),
+      )) {
+        text = math.max(text, paragraph.getMaxIntrinsicHeight(double.infinity));
+      }
+      return (row: row.height, text: text);
+    }
+
+    testWidgets('grows with the text scale so labels fit', (tester) async {
+      for (final factor in [1.0, 1.5, 2.0, 3.0]) {
+        final size = await measure(
+          tester,
+          scaler: TextScaler.linear(factor),
+          theme: ThemeData(
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        );
+        expect(
+          size.row,
+          greaterThanOrEqualTo(size.text + 8),
+          reason: '$factor',
+        );
+        if (factor == 1.0) expect(size.row, 36);
+      }
+      // Compact desktop rows too.
+      final compact = await measure(
+        tester,
+        scaler: const TextScaler.linear(2),
+        theme: ThemeData(visualDensity: VisualDensity.compact),
+      );
+      expect(compact.row, greaterThanOrEqualTo(compact.text + 4));
+    });
+
+    testWidgets('an explicit rowExtent stays as given', (tester) async {
+      final size = await measure(
+        tester,
+        scaler: const TextScaler.linear(2),
+        data: const DirectoryTreeThemeData(rowExtent: 30),
+      );
+      expect(size.row, 30);
+    });
+
+    testWidgets('of() resolves the scaled extent once per text scale', (
+      tester,
+    ) async {
+      late BuildContext context;
+      Widget app(double factor) => MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(factor)),
+        child: Theme(
+          data: ThemeData(
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+          child: Builder(
+            builder: (c) {
+              context = c;
+              return const SizedBox();
+            },
+          ),
+        ),
+      );
+      await tester.pumpWidget(app(1));
+      final normal = DirectoryTreeTheme.of(context);
+      await tester.pumpWidget(app(2));
+      final large = DirectoryTreeTheme.of(context);
+      expect(large.rowExtent, greaterThan(normal.rowExtent!));
+      expect(DirectoryTreeTheme.of(context), same(large));
+      expect(large.copyWith(rowExtent: normal.rowExtent), normal);
+    });
+
+    testWidgets('touch platforms get 48 px rows; desktops stay compact', (
+      tester,
+    ) async {
+      final size = await measure(tester, scaler: TextScaler.noScaling);
+      final touch =
+          defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.fuchsia;
+      expect(size.row, touch ? 48 : 28);
+    }, variant: TargetPlatformVariant.all());
+
+    testWidgets(
+      'a default tree meets the tap target and contrast guidelines',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        final loader = PendingTestLoader();
+        final controller = DirectoryTreeController<Object?>(
+          tree: DirectoryTree<Object?>.build(const [
+            TreeEntry<Object?>.directory('/r/lazy'),
+            TreeEntry<Object?>.file('/r/a/b.txt'),
+            TreeEntry<Object?>.file('/r/c.txt'),
+          ]),
+          expansion: const ExpansionState.expanded(),
+          loadChildren: loader.call,
+        )..select(const NodeId('/r/c.txt'));
+        addTearDown(controller.dispose);
+        for (final mode in DirectoryTreeCheckboxMode.values) {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(
+                body: CustomScrollView(
+                  slivers: [
+                    // Rows that touch the edges of the scroll view are
+                    // skipped by the tap target guidelines.
+                    SliverPadding(
+                      padding: const EdgeInsets.all(16),
+                      sliver: SliverDirectoryTree<Object?>(
+                        controller: controller,
+                        checkboxMode: mode,
+                        onActivate: (_) {},
+                        onRowSecondaryTap: (_, _) {},
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+          await tester.pump();
+          await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(textContrastGuideline));
+        }
+        semantics.dispose();
+      },
+      variant: const TargetPlatformVariant(<TargetPlatform>{
+        TargetPlatform.android,
+        TargetPlatform.iOS,
+      }),
+    );
+  });
+}
+
+/// A loader whose loads never finish.
+final class PendingTestLoader {
+  Future<Iterable<TreeEntry<Object?>>> call(DirectoryNode<Object?> directory) =>
+      Completer<Iterable<TreeEntry<Object?>>>().future;
 }

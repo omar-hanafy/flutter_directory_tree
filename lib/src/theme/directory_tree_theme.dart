@@ -91,7 +91,9 @@ class DirectoryTreeThemeData extends ThemeExtension<DirectoryTreeThemeData>
   ///
   /// Colors come from the Material 3 roles of [ThemeData.colorScheme], the
   /// label style from [ThemeData.textTheme], and the row height from
-  /// [ThemeData.visualDensity]; each field's documentation names its default.
+  /// [ThemeData.visualDensity] and [ThemeData.materialTapTargetSize]; each
+  /// field's documentation names its default. The row height here ignores
+  /// the text scale, which only [DirectoryTreeTheme.of] knows.
   /// [DirectoryTreeTheme.of] starts from this value, so use it directly only
   /// when building a complete theme by hand.
   ///
@@ -109,14 +111,24 @@ class DirectoryTreeThemeData extends ThemeExtension<DirectoryTreeThemeData>
   static const double _baseRowExtent = 36;
   static const double _minRowExtent = 20;
 
+  /// The row height from the visual density alone: 36 adjusted by
+  /// [ThemeData.visualDensity], never below 20.
+  static double _densityRowExtent(ThemeData theme) => math.max(
+    _minRowExtent,
+    _baseRowExtent + theme.visualDensity.baseSizeAdjustment.dy,
+  );
+
   static DirectoryTreeThemeData _createFallback(ThemeData theme) {
     final scheme = theme.colorScheme;
     final label =
         theme.textTheme.bodyMedium ?? TextStyle(color: scheme.onSurface);
     return DirectoryTreeThemeData(
       rowExtent: math.max(
-        _minRowExtent,
-        _baseRowExtent + theme.visualDensity.baseSizeAdjustment.dy,
+        _densityRowExtent(theme),
+        // Material pads tap targets to 48 px on touch platforms.
+        theme.materialTapTargetSize == MaterialTapTargetSize.padded
+            ? kMinInteractiveDimension
+            : 0.0,
       ),
       indentWidth: 16,
       rowPadding: const EdgeInsetsDirectional.only(start: 4, end: 8),
@@ -159,13 +171,24 @@ class DirectoryTreeThemeData extends ThemeExtension<DirectoryTreeThemeData>
 
   /// The height of every row, in logical pixels.
   ///
-  /// The tree view lays its rows out at this fixed extent. Defaults to 36
-  /// adjusted by [ThemeData.visualDensity]
+  /// The tree view lays its rows out at this fixed extent. The default is
+  /// 36 adjusted by [ThemeData.visualDensity]
   /// (`36 + VisualDensity.baseSizeAdjustment.dy`, so 28 for
-  /// [VisualDensity.compact]), and never less than 20. The 20-pixel floor
-  /// applies only to that default: an explicit value, from a theme extension
-  /// or a [DirectoryTreeTheme], is used as given and must be positive and
-  /// finite.
+  /// [VisualDensity.compact], the default density of desktop platforms),
+  /// never less than 20, and at least [kMinInteractiveDimension] (48)
+  /// while [ThemeData.materialTapTargetSize] is
+  /// [MaterialTapTargetSize.padded] (the default on Android, iOS, and
+  /// Fuchsia), so rows are comfortable touch targets.
+  ///
+  /// [DirectoryTreeTheme.of] also grows the default with the text scale
+  /// ([MediaQuery.textScalerOf]): the row gains the height the scaled label
+  /// line adds, so large text is never clipped. The height still stays
+  /// fixed for a given text scale, which keeps scrolling O(1).
+  ///
+  /// The floors and the text scaling apply only to the default: an
+  /// explicit value, from a theme extension or a [DirectoryTreeTheme], is
+  /// used as given and must be positive and finite. Choose one that fits
+  /// the label at the text scales the app supports.
   final double? rowExtent;
 
   /// The horizontal space each depth level adds, in logical pixels.
@@ -722,27 +745,94 @@ class DirectoryTreeTheme extends InheritedTheme {
   /// from the resolved label style, so a custom label font applies to every
   /// row state.
   ///
-  /// Registers a dependency on the [Theme] and on the nearest
-  /// [DirectoryTreeTheme], so the calling widget rebuilds when either
-  /// changes. The result is cached: repeated calls under the same theme and
-  /// data return the same instance without allocating.
+  /// When neither level sets [DirectoryTreeThemeData.rowExtent], the
+  /// default row height grows with the text scale of [MediaQuery]: the row
+  /// gains what the scaled label line adds to the unscaled one (see
+  /// [DirectoryTreeThemeData.rowExtent]).
+  ///
+  /// Registers a dependency on the [Theme], on the nearest
+  /// [DirectoryTreeTheme], and (without an explicit row height) on the text
+  /// scale of the nearest [MediaQuery], so the calling widget rebuilds when
+  /// any of them changes. The result is cached: repeated calls under the
+  /// same theme, data, and text scale return the same instance without
+  /// allocating.
   static DirectoryTreeThemeData of(BuildContext context) {
     final theme = Theme.of(context);
     final local = context
         .dependOnInheritedWidgetOfExactType<DirectoryTreeTheme>()
         ?.data;
+    final extension = theme.extension<DirectoryTreeThemeData>();
+    final DirectoryTreeThemeData resolved;
     if (local == null) {
-      return _resolvedByTheme[theme] ??= _resolve(
-        theme,
-        theme.extension<DirectoryTreeThemeData>(),
+      resolved = _resolvedByTheme[theme] ??= _resolve(theme, extension);
+    } else {
+      final cached = _resolvedByData[local];
+      if (cached != null && identical(cached.theme, theme)) {
+        resolved = cached.data;
+      } else {
+        resolved = _resolve(theme, extension?.merge(local) ?? local);
+        _resolvedByData[local] = (theme: theme, data: resolved);
+      }
+    }
+    if (local?.rowExtent != null || extension?.rowExtent != null) {
+      return resolved;
+    }
+    final scaler = MediaQuery.maybeTextScalerOf(context);
+    if (scaler == null || scaler == TextScaler.noScaling) return resolved;
+    return _scaled(theme, resolved, scaler);
+  }
+
+  // The default row height for a text scale, per resolved theme (one text
+  // scale each: the common case is one per app). The Expando holds its keys
+  // weakly.
+  static final Expando<({TextScaler scaler, DirectoryTreeThemeData data})>
+  _scaledByData = Expando<({TextScaler scaler, DirectoryTreeThemeData data})>(
+    'DirectoryTreeTheme.of',
+  );
+
+  static DirectoryTreeThemeData _scaled(
+    ThemeData theme,
+    DirectoryTreeThemeData resolved,
+    TextScaler scaler,
+  ) {
+    final cached = _scaledByData[resolved];
+    if (cached != null && cached.scaler == scaler) return cached.data;
+    // What the largest label line grows by; selected and dimmed labels may
+    // use their own fonts.
+    var growth = 0.0;
+    for (final style in <TextStyle?>[
+      resolved.labelStyle,
+      resolved.selectedLabelStyle,
+      resolved.dimmedLabelStyle,
+    ]) {
+      if (style == null) continue;
+      growth = math.max(
+        growth,
+        _lineHeight(style, scaler) - _lineHeight(style, TextScaler.noScaling),
       );
     }
-    final cached = _resolvedByData[local];
-    if (cached != null && identical(cached.theme, theme)) return cached.data;
-    final extension = theme.extension<DirectoryTreeThemeData>();
-    final data = _resolve(theme, extension?.merge(local) ?? local);
-    _resolvedByData[local] = (theme: theme, data: data);
+    final extent = math.max(
+      resolved.rowExtent!,
+      (DirectoryTreeThemeData._densityRowExtent(theme) + growth).ceilToDouble(),
+    );
+    final data = extent == resolved.rowExtent
+        ? resolved
+        : resolved.copyWith(rowExtent: extent);
+    _scaledByData[resolved] = (scaler: scaler, data: data);
     return data;
+  }
+
+  /// The height of one line of [style] under [scaler].
+  static double _lineHeight(TextStyle style, TextScaler scaler) {
+    final painter = TextPainter(
+      text: TextSpan(style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: scaler,
+      maxLines: 1,
+    );
+    final height = painter.preferredLineHeight;
+    painter.dispose();
+    return height;
   }
 
   // Rows call [of] on every build, so the resolved themes are cached by the
