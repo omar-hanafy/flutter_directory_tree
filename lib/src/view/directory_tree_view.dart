@@ -62,13 +62,26 @@ import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 /// ## Secondary taps and context menus
 ///
 /// A secondary click (or a touch long-press) on a row selects the row when
-/// it is not selected, calls [onRowSecondaryTap], and then opens the menu
-/// of [contextMenuBuilder]. With [dragAndDrop], a touch long-press starts a
+/// it is not selected (with [selectOnTap]; otherwise it only focuses it),
+/// calls [onRowSecondaryTap], and then opens the menu of
+/// [contextMenuBuilder]. With [dragAndDrop], a touch long-press starts a
 /// drag once the finger moves; a long-press released without moving counts
 /// as a secondary tap. Shift+F10 and the context menu key open the menu for
 /// the focused row; without a [contextMenuBuilder] they call
-/// [onRowSecondaryTap] at the bottom-left corner of the focused row, so a
-/// menu of another design system is reachable from the keyboard as well.
+/// [onRowSecondaryTap] for the focused row instead (see there), so a menu
+/// of another design system is reachable from the keyboard as well.
+///
+/// On the web, browsers show their own context menu for a right click on
+/// top of the tree's menu until the app calls
+/// `BrowserContextMenu.disableContextMenu()`; see
+/// [DirectoryTreeContextMenu] for why the package leaves that to the app.
+///
+/// ## Changing the configuration
+///
+/// Every parameter may change between builds. The scroll position, the
+/// keyboard focus, and the type-ahead search survive changes that add or
+/// remove parts of the view, such as [contextMenuBuilder], [dragAndDrop],
+/// [showScrollbar], [padding], or [semanticLabel].
 ///
 /// ## Layout
 ///
@@ -100,6 +113,7 @@ class DirectoryTreeView<T> extends StatefulWidget {
     this.semanticLabel,
     this.levelSemanticsHint,
     this.emptyBuilder,
+    this.selectionFollowsFocus = true,
   });
 
   /// The state the view shows and changes.
@@ -141,17 +155,31 @@ class DirectoryTreeView<T> extends StatefulWidget {
   final ValueChanged<TreeRow<T>>? onActivate;
 
   /// Called for a secondary click or touch long-press on a row, with the
-  /// global position of the pointer, after the row was selected and before
-  /// the context menu opens.
+  /// global position of the pointer, after the row was selected (with
+  /// [selectOnTap]; otherwise focused) and before the context menu opens.
   ///
   /// Without a [contextMenuBuilder], Shift+F10 and the context menu key call
-  /// it too, at the bottom-left corner of the focused row.
+  /// it too, for the focused row, the same way: with [selectOnTap] the row
+  /// is selected first when it is not selected. The position is the
+  /// bottom-start corner of the row (bottom-left in left-to-right text,
+  /// bottom-right in right-to-left text), or the center of the view when
+  /// the row is not laid out (scrolled out of view). The keys reach the
+  /// widgets above the view while no row is focused, and an ancestor
+  /// [Actions] that maps [OpenTreeContextMenuIntent] replaces this
+  /// behavior.
+  ///
+  /// On the web, see [DirectoryTreeContextMenu] for the browser's own menu.
   final void Function(TreeRow<T> row, Offset globalPosition)? onRowSecondaryTap;
 
   /// Builds the items of the context menu of a row; no menu when `null`.
   ///
   /// Return an empty list to open no menu for a row. See
-  /// [DirectoryTreeContextMenu].
+  /// [DirectoryTreeContextMenu]; the view creates it with
+  /// [DirectoryTreeContextMenu.selectOnOpen] set to [selectOnTap], so with
+  /// `selectOnTap: false` opening a menu never changes the selection. On the
+  /// web, browsers show their own context menu on top of this one until the
+  /// app calls `BrowserContextMenu.disableContextMenu()` (see
+  /// [DirectoryTreeContextMenu]).
   final DirectoryTreeMenuBuilder<T>? contextMenuBuilder;
 
   /// How rows are dragged and dropped onto directories; no drag and drop
@@ -180,6 +208,16 @@ class DirectoryTreeView<T> extends StatefulWidget {
   /// Whether typing the start of a row's name moves to that row; true by
   /// default.
   final bool typeAhead;
+
+  /// Whether moving the keyboard cursor (arrow keys, Home, End, the page
+  /// keys, type-ahead) also selects the row it reaches; true by default.
+  ///
+  /// Set it to false where the user builds the selection pick by pick, for
+  /// example with [DirectoryTreeCheckboxMode.selection] and
+  /// `selectOnTap: false`, so that moving through the rows never undoes a
+  /// pick; Space still toggles the focused row. See
+  /// [DirectoryTreeKeyboard.selectionFollowsFocus].
+  final bool selectionFollowsFocus;
 
   /// Controls the scroll position; the view creates and disposes its own
   /// when `null`.
@@ -297,13 +335,34 @@ class DirectoryTreeView<T> extends StatefulWidget {
           defaultValue: true,
         ),
       )
-      ..add(StringProperty('semanticLabel', semanticLabel, defaultValue: null));
+      ..add(StringProperty('semanticLabel', semanticLabel, defaultValue: null))
+      ..add(
+        FlagProperty(
+          'selectionFollowsFocus',
+          value: selectionFollowsFocus,
+          ifFalse: 'selection does not follow focus',
+          defaultValue: true,
+        ),
+      );
   }
 }
 
 class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
   final GlobalKey<DirectoryTreeContextMenuState<T>> _menuKey =
       GlobalKey<DirectoryTreeContextMenuState<T>>();
+
+  // The wrappers around the keyboard and the scroll view come and go with
+  // the parameters; these keys move both subtrees (the scroll position,
+  // the focus, the type-ahead search) to their new place instead of
+  // building them anew.
+  final GlobalKey _keyboardKey = GlobalKey(debugLabel: 'keyboard');
+  final GlobalKey _scrollViewKey = GlobalKey(debugLabel: 'scroll view');
+
+  late final Action<OpenTreeContextMenuIntent> _keyboardSecondaryTap =
+      Action<OpenTreeContextMenuIntent>.overridable(
+        defaultAction: _KeyboardSecondaryTapAction<T>(this),
+        context: context,
+      );
 
   ScrollController? _ownedScrollController;
   FocusNode? _ownedFocusNode;
@@ -387,14 +446,30 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
     _handleSecondaryTap(controller.rows.rowOf(id) ?? row, globalPosition);
   }
 
-  Object? _openMenuFromKeyboard(OpenTreeContextMenuIntent intent) {
+  /// Shift+F10 without a menu builder: [DirectoryTreeView.onRowSecondaryTap]
+  /// for the focused row, selected first as a secondary click would, at the
+  /// row's bottom-start corner or the center of the view.
+  void _secondaryTapFromKeyboard() {
+    final callback = widget.onRowSecondaryTap;
     final controller = widget.controller;
     final row = controller.focusedRow;
-    if (row == null) return null;
-    final rect = controller.globalRowRect(controller.focusedIndex);
-    if (rect == null) return null;
-    widget.onRowSecondaryTap?.call(row, rect.bottomLeft);
-    return null;
+    if (callback == null || row == null) return;
+    final id = row.id;
+    if (widget.selectOnTap && !controller.isSelected(id)) controller.select(id);
+    final rows = controller.rows;
+    final current = rows.rowOf(id) ?? row;
+    final rect = controller.globalRowRect(rows.indexOfNode(id));
+    final Offset position;
+    if (rect != null && rect.isFinite) {
+      final rtl = Directionality.maybeOf(context) == TextDirection.rtl;
+      position = rtl ? rect.bottomRight : rect.bottomLeft;
+    } else {
+      final box = context.findRenderObject();
+      position = box is RenderBox && box.hasSize
+          ? box.localToGlobal(box.size.center(Offset.zero))
+          : Offset.zero;
+    }
+    callback(current, position);
   }
 
   @override
@@ -422,13 +497,15 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
       secondaryTapOnLongPress: dragAndDrop == null,
       levelSemanticsHint: widget.levelSemanticsHint,
     );
-    final padding = widget.padding;
-    if (padding != null) {
-      sliver = SliverPadding(padding: padding, sliver: sliver);
-    }
+    // Always padded, so that a padding change keeps the sliver's state.
+    sliver = SliverPadding(
+      padding: widget.padding ?? EdgeInsets.zero,
+      sliver: sliver,
+    );
     final emptyBuilder = widget.emptyBuilder;
     final scrollController = _scrollController;
     Widget result = CustomScrollView(
+      key: _scrollViewKey,
       controller: scrollController,
       physics: widget.physics,
       // The view adds its own scrollbar (or none), so the one desktop
@@ -448,6 +525,7 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
       result = Scrollbar(controller: scrollController, child: result);
     }
     result = DirectoryTreeKeyboard<T>(
+      key: _keyboardKey,
       controller: controller,
       focusNode: _focusNode,
       autofocus: widget.autofocus,
@@ -455,6 +533,7 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
       onActivate: widget.onActivate,
       checkboxMode: widget.checkboxMode,
       typeAhead: widget.typeAhead,
+      selectionFollowsFocus: widget.selectionFollowsFocus,
       child: result,
     );
     if (contextMenuBuilder != null) {
@@ -462,14 +541,13 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
         key: _menuKey,
         controller: controller,
         builder: contextMenuBuilder,
+        selectOnOpen: widget.selectOnTap,
         child: result,
       );
     } else if (widget.onRowSecondaryTap != null) {
       result = Actions(
         actions: <Type, Action<Intent>>{
-          OpenTreeContextMenuIntent: CallbackAction<OpenTreeContextMenuIntent>(
-            onInvoke: _openMenuFromKeyboard,
-          ),
+          OpenTreeContextMenuIntent: _keyboardSecondaryTap,
         },
         child: result,
       );
@@ -494,5 +572,25 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
       );
     }
     return result;
+  }
+}
+
+/// Calls [DirectoryTreeView.onRowSecondaryTap] for the focused row; enabled
+/// while a row is focused, so the keys reach the widgets above otherwise.
+class _KeyboardSecondaryTapAction<T> extends Action<OpenTreeContextMenuIntent> {
+  _KeyboardSecondaryTapAction(this._view);
+
+  final _DirectoryTreeViewState<T> _view;
+
+  @override
+  bool isEnabled(OpenTreeContextMenuIntent intent) =>
+      _view.mounted &&
+      _view.widget.onRowSecondaryTap != null &&
+      _view.widget.controller.focusedIndex >= 0;
+
+  @override
+  Object? invoke(OpenTreeContextMenuIntent intent) {
+    _view._secondaryTapFromKeyboard();
+    return null;
   }
 }
