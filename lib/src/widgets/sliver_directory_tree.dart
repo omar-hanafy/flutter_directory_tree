@@ -432,11 +432,13 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   // _anchorScrollOffset).
   double _appliedAnchorCorrection = 0;
 
-  // After showRow jumped, the row it showed is the anchor until the next
-  // build (the latest layout no longer describes the screen): its id, its
-  // index in the rows of that moment, those rows, and the correction
-  // applied since.
+  // After showRow jumped, the row it showed is the anchor until the layout
+  // that follows has run (until then the latest layout no longer describes
+  // the screen): its id, its index in the rows of that moment, those rows,
+  // and the correction applied since. A post-frame callback drops it; the
+  // generation tells that callback whether a later jump replaced it.
   ({NodeId id, int index, TreeRows<T> rows, double applied})? _shownAnchor;
+  int _shownGeneration = 0;
 
   // The animation of the latest animated showRow while it runs.
   _RowAnimation? _rowAnimation;
@@ -621,7 +623,6 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     );
     _snapshot = snapshot;
     _appliedAnchorCorrection = 0;
-    _shownAnchor = null;
     return SliverFixedExtentList.builder(
       itemExtent: extent,
       itemCount: snapshot.rows.length,
@@ -966,11 +967,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     }
     final applied = shown?.applied ?? _appliedAnchorCorrection;
     final delta = desired - applied;
-    // An earlier correction this frame turned off the framework's own
-    // boundary check for the next layout (the physics keep a corrected
-    // offset as it is), so the offset is clamped again even when this
-    // change moves nothing.
-    if (delta == 0 && applied == 0) return;
+    // An earlier correction this frame, or showRow's jump, turned off the
+    // framework's own boundary check for the next layout (the physics keep
+    // a moved offset as it is), so the offset is clamped again even when
+    // this change moves nothing.
+    if (delta == 0 && applied == 0 && shown == null) return;
     // The scroll physics keep a corrected offset as it is, so it must land
     // inside the scroll range of the new rows here.
     final range = _predictedScrollRange(
@@ -1314,6 +1315,14 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final id = rows[index].id;
     if (duration == Duration.zero) {
       _shownAnchor = (id: id, index: index, rows: rows, applied: 0);
+      // The jump moves the offset (a target equal to it returns above), so
+      // a frame lays the sliver out; after that frame the latest layout
+      // describes the screen again. Called from a post-frame callback (the
+      // first reveal after startup), this one runs after the next frame.
+      final generation = ++_shownGeneration;
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (_shownGeneration == generation) _shownAnchor = null;
+      });
       position.jumpTo(target);
       return Future<void>.value();
     }

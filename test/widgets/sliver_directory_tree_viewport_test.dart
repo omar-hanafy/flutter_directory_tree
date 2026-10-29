@@ -478,8 +478,35 @@ void main() {
       expect(position.pixels, position.maxScrollExtent);
     });
 
+    testWidgets(
+      'of two instant reveals before one frame, the latest one is the '
+      'anchor',
+      (tester) async {
+        final controller = wideController(100);
+        addTearDown(controller.dispose);
+        final scroll = ScrollController();
+        addTearDown(scroll.dispose);
+        await tester.pumpWidget(
+          treeApp(controller: controller, scrollController: scroll),
+        );
+        // Two instant reveals before one frame: the second one counts.
+        unawaited(controller.ensureVisible(wideId(30), alignment: 0));
+        unawaited(controller.ensureVisible(wideId(5), alignment: 0));
+        expect(scroll.offset, 6 * rowExtent);
+        controller.tree = wideTree(
+          100,
+          extra: [
+            for (var i = 0; i < 30; i++) 'a${i.toString().padLeft(2, '0')}',
+          ],
+        );
+        await tester.pump();
+        expect(rowTop(tester, wideId(5)), 0);
+        expect(scroll.offset, 36 * rowExtent);
+      },
+    );
+
     testWidgets('after an instant reveal, the revealed row is the anchor until '
-        'the next frame', (tester) async {
+        'the layout that follows has run', (tester) async {
       final controller = wideController(100);
       addTearDown(controller.dispose);
       final scroll = ScrollController();
@@ -1412,6 +1439,138 @@ void main() {
           ..expand(const NodeId('/r/a'))
           ..collapse(const NodeId('/r/z'));
       });
+      expect(past, everyElement(0));
+    });
+  });
+
+  group('after an instant reveal has been laid out', () {
+    // Ten files that sort right after file 50.
+    final afterFifty = [for (var i = 0; i < 10; i++) 'f0050_$i.txt'];
+
+    // A 100-file tree revealed instantly at file 80, then scrolled to
+    // [offset] by the user (nothing rebuilds the sliver).
+    Future<(DirectoryTreeController<int>, ScrollController)> revealThenScroll(
+      WidgetTester tester,
+      double offset,
+    ) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      // ensureVisible does not notify, so no build follows the jump.
+      // Let the app settle first: no build is pending.
+      await tester.pumpAndSettle();
+      await controller.ensureVisible(wideId(80), alignment: 0);
+      await tester.pumpAndSettle();
+      expect(rowTop(tester, wideId(80)), 0);
+      scroll.jumpTo(offset);
+      await tester.pumpAndSettle();
+      return (controller, scroll);
+    }
+
+    testWidgets('a later rows change anchors the first visible row', (
+      tester,
+    ) async {
+      final (controller, scroll) = await revealThenScroll(tester, 600);
+      expect(rowTop(tester, wideId(19)), 0);
+      controller.tree = wideTree(100, extra: afterFifty);
+      await tester.pump();
+      expect(scroll.offset, 600);
+      expect(rowTop(tester, wideId(19)), 0);
+    });
+
+    testWidgets('a later rows change keeps the start of the tree in place', (
+      tester,
+    ) async {
+      final (controller, scroll) = await revealThenScroll(tester, 0);
+      controller.tree = wideTree(100, extra: afterFifty);
+      await tester.pump();
+      expect(scroll.offset, 0);
+      expect(rowTop(tester, wideDir), 0);
+    });
+
+    testWidgets('a later row height change anchors the first visible row', (
+      tester,
+    ) async {
+      final (controller, scroll) = await revealThenScroll(tester, 600);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          scrollController: scroll,
+          theme: const DirectoryTreeThemeData(
+            rowExtent: 40,
+            animationDuration: Duration.zero,
+          ),
+        ),
+      );
+      expect(scroll.offset, 20 * 40);
+      expect(rowTop(tester, wideId(19)), 0);
+    });
+
+    testWidgets('an expand tap after a startup reveal keeps the tapped row in '
+        'place', (tester) async {
+      const dir = NodeId('/w/dir');
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build([
+          for (var i = 0; i < 10; i++) TreeEntry<int>.file('/w/dir/x$i.txt'),
+          for (var i = 0; i < 100; i++)
+            TreeEntry<int>.file('/w/${wideName(i)}'),
+        ]),
+        expansion: ExpansionState.withExpanded(const [wideDir]),
+      );
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+        phase: EnginePhase.build,
+      );
+      // Before the first layout: the jump runs after the first frame.
+      controller.reveal(wideId(80), alignment: 0);
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(0));
+      scroll.jumpTo(0);
+      await tester.pumpAndSettle();
+      expect(rowTop(tester, dir), rowExtent);
+      await tester.tap(rowOf(dir));
+      await tester.pump();
+      expect(controller.isExpanded(dir), isTrue);
+      expect(scroll.offset, 0);
+      expect(rowTop(tester, dir), rowExtent);
+    });
+
+    testWidgets('a range that shrinks in the frame of the reveal is clamped', (
+      tester,
+    ) async {
+      const z = NodeId('/r/z');
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build([
+          for (var i = 0; i < 60; i++)
+            TreeEntry<int>.file('/r/m/m${i.toString().padLeft(2, '0')}.txt'),
+          for (var i = 0; i < 40; i++)
+            TreeEntry<int>.file('/r/z/z${i.toString().padLeft(2, '0')}.txt'),
+        ]),
+        expansion: const ExpansionState.expanded(),
+      );
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      // The reveal jumps to the last file of m, then 40 rows below it go.
+      unawaited(
+        controller.ensureVisible(const NodeId('/r/m/m59.txt'), alignment: 0),
+      );
+      controller.collapse(z);
+      final past = <double>[];
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        past.add(scroll.position.pixels - scroll.position.maxScrollExtent);
+      }
       expect(past, everyElement(0));
     });
   });
