@@ -4,10 +4,13 @@ import 'dart:math' as math;
 import 'package:directory_tree/directory_tree.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
+import 'package:flutter/material.dart'
+    show DefaultMaterialLocalizations, MaterialLocalizations;
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_directory_tree/src/controller/directory_loading.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_viewport.dart';
 // Imported only so documentation references resolve.
@@ -82,7 +85,11 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 /// is looking at. When that row is gone, the next visible row that still
 /// exists keeps its place instead, and when none does, the scroll offset is
 /// only clamped to the new content. When the whole tree is scrolled past,
-/// the content after it stays in place.
+/// the content after it stays in place. This holds while the view scrolls
+/// too: a fling keeps its momentum from the corrected position, an
+/// animation the app started lands on the content it was heading to, and
+/// an animated [DirectoryTreeController.ensureVisible] still ends with its
+/// row where it asked.
 ///
 /// Rows inserted by an incremental expand or a lazy load (a
 /// [TreeRowsChange] splice) fade and slide in over
@@ -92,13 +99,40 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 ///
 /// ## Semantics
 ///
-/// Each row is one semantics node labeled with [TreeRow.label], with the
-/// selected state, the expanded state of expandable rows, the checked or
-/// mixed state when [checkboxMode] shows checkboxes, a tap action (a plain
-/// click), a long-press action (the secondary tap) when [onRowSecondaryTap]
-/// is set, and a hint with the row's level from [levelSemanticsHint]. A
-/// custom [rowBuilder] should not repeat the label in its own semantics;
-/// wrap such text in [ExcludeSemantics].
+/// Each row is one semantics node, as large as the row, so screen readers
+/// stop once per row. It is labeled with [TreeRow.label] and reports:
+///
+/// * the selected state, the expanded state of expandable rows, and the
+///   checked or mixed state when [checkboxMode] shows checkboxes;
+/// * the load state of a lazy directory as its value:
+///   [loadingSemanticsLabel] while its children load and
+///   [loadFailedSemanticsLabel] after the load failed;
+/// * a hint with the row's level from [levelSemanticsHint];
+/// * the keyboard focus: while the tree has keyboard focus, the row of
+///   [DirectoryTreeController.focusedId] is the focused node, so screen
+///   readers on the web and on desktops follow the arrow keys.
+///
+/// Its actions:
+///
+/// * tap: with checkboxes, toggles the row's box as a click on it does;
+///   otherwise (and for a box that cannot change) a plain click;
+/// * expand and collapse for expandable rows (as a click on the expander
+///   does); on iOS and macOS, whose screen readers lack those actions,
+///   also custom actions labeled with
+///   [MaterialLocalizations.collapsedIconTapHint] and
+///   [MaterialLocalizations.expandedIconTapHint];
+/// * a custom action labeled with
+///   [MaterialLocalizations.refreshIndicatorSemanticLabel] that retries the
+///   failed load of a lazy directory;
+/// * a custom action labeled [activateSemanticsLabel] that activates the
+///   row (as Enter or a double-click does) when [onActivate] is set, so
+///   touch screen reader users can open files;
+/// * long press: the secondary tap, when [onRowSecondaryTap] is set.
+///
+/// The default [DirectoryTreeExpander] and [DirectoryTreeCheckbox] add no
+/// node of their own inside the sliver. A custom [rowBuilder] should not
+/// repeat the label in its own semantics; wrap such text in
+/// [ExcludeSemantics].
 class SliverDirectoryTree<T> extends StatefulWidget {
   /// Creates the sliver of [controller]'s rows.
   const SliverDirectoryTree({
@@ -114,6 +148,9 @@ class SliverDirectoryTree<T> extends StatefulWidget {
     this.onRowSecondaryTap,
     this.secondaryTapOnLongPress = true,
     this.levelSemanticsHint,
+    this.activateSemanticsLabel = 'Open',
+    this.loadingSemanticsLabel = 'Loading',
+    this.loadFailedSemanticsLabel = 'Failed to load',
   });
 
   /// The controller whose [DirectoryTreeController.rows] this sliver shows.
@@ -184,6 +221,29 @@ class SliverDirectoryTree<T> extends StatefulWidget {
   ///
   /// Null uses the English `Level 2`; pass a function to localize it.
   final String Function(int level)? levelSemanticsHint;
+
+  /// The label of the custom semantics action that activates a row, as a
+  /// double-click or Enter does; `'Open'` by default.
+  ///
+  /// Rows offer the action only while [onActivate] is set. It is how touch
+  /// screen reader users, who have no double-click and no Enter key, reach
+  /// [onActivate]; pass a localized verb that says what activation does in
+  /// the app, such as "Open".
+  final String activateSemanticsLabel;
+
+  /// The semantics value of a lazy directory row while its children load;
+  /// `'Loading'` by default.
+  ///
+  /// Screen readers read it after the row's label. Pass a localized
+  /// string.
+  final String loadingSemanticsLabel;
+
+  /// The semantics value of a lazy directory row whose children failed to
+  /// load; `'Failed to load'` by default.
+  ///
+  /// Screen readers read it after the row's label; the row also offers an
+  /// action that retries the load. Pass a localized string.
+  final String loadFailedSemanticsLabel;
 
   @override
   State<SliverDirectoryTree<T>> createState() => _SliverDirectoryTreeState<T>();
@@ -257,6 +317,27 @@ class SliverDirectoryTree<T> extends StatefulWidget {
         ObjectFlagProperty<String Function(int)>.has(
           'levelSemanticsHint',
           levelSemanticsHint,
+        ),
+      )
+      ..add(
+        StringProperty(
+          'activateSemanticsLabel',
+          activateSemanticsLabel,
+          defaultValue: 'Open',
+        ),
+      )
+      ..add(
+        StringProperty(
+          'loadingSemanticsLabel',
+          loadingSemanticsLabel,
+          defaultValue: 'Loading',
+        ),
+      )
+      ..add(
+        StringProperty(
+          'loadFailedSemanticsLabel',
+          loadFailedSemanticsLabel,
+          defaultValue: 'Failed to load',
         ),
       );
   }
@@ -392,7 +473,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         oldWidget.secondaryTapOnLongPress != widget.secondaryTapOnLongPress ||
         (oldWidget.onRowSecondaryTap == null) !=
             (widget.onRowSecondaryTap == null) ||
-        oldWidget.levelSemanticsHint != widget.levelSemanticsHint) {
+        (oldWidget.onActivate == null) != (widget.onActivate == null) ||
+        oldWidget.levelSemanticsHint != widget.levelSemanticsHint ||
+        oldWidget.activateSemanticsLabel != widget.activateSemanticsLabel ||
+        oldWidget.loadingSemanticsLabel != widget.loadingSemanticsLabel ||
+        oldWidget.loadFailedSemanticsLabel != widget.loadFailedSemanticsLabel) {
       _cache.clear();
     }
   }
@@ -697,9 +782,20 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     widget.onRowSecondaryTap?.call(_currentRow(row), globalPosition);
   }
 
-  /// The semantics tap action: a plain click that never activates.
-  void _handleSemanticTap(TreeRow<T> row, BuildContext itemContext) {
+  /// The semantics tap action: with checkboxes, what a click on the row's
+  /// box does; otherwise (or when the box cannot change) a plain click
+  /// that never activates.
+  void _handleSemanticTap(
+    DirectoryTreeRowDetails<T> details,
+    BuildContext itemContext,
+  ) {
     _resetClicks();
+    // The row's node is the checkbox for screen readers.
+    if (canToggleCheckbox(details)) {
+      toggleCheckbox(itemContext, details);
+      return;
+    }
+    final row = details.row;
     _click(
       row,
       itemContext,
@@ -708,6 +804,42 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
       activation: false,
       opensDoubleClickWindow: false,
     );
+  }
+
+  /// The semantics expand and collapse actions, and the retry of a failed
+  /// load: what a click on the row's expander does.
+  void _handleSemanticExpansion(
+    TreeRow<T> row,
+    BuildContext itemContext, {
+    required bool expand,
+  }) {
+    _resetClicks();
+    requestTreeFocus(itemContext);
+    final controller = _controller;
+    final id = row.id;
+    if (expand) {
+      // Also starts a failed load again.
+      controller.expand(id);
+    } else {
+      controller.collapse(id);
+    }
+    controller.focus(id);
+  }
+
+  /// The semantics activate action: what Enter does on the row, after it
+  /// is focused (and selected, with [SliverDirectoryTree.selectOnTap]).
+  void _handleSemanticActivate(TreeRow<T> row, BuildContext itemContext) {
+    _resetClicks();
+    requestTreeFocus(itemContext);
+    final controller = _controller;
+    final id = row.id;
+    if (widget.selectOnTap) {
+      controller.select(id);
+    } else {
+      controller.focus(id);
+    }
+    if (row.node is DirectoryNode<T>) controller.toggleExpansion(id);
+    widget.onActivate?.call(_currentRow(row));
   }
 
   /// The row of [row]'s node in the controller's current rows, which a
@@ -1389,7 +1521,19 @@ class _RowItemState<T> extends State<_RowItem<T>> {
       ._handleSecondaryTap(widget.details.row, details.globalPosition, context);
 
   void _handleSemanticTap() =>
-      _host._handleSemanticTap(widget.details.row, context);
+      _host._handleSemanticTap(widget.details, context);
+
+  void _handleSemanticExpand() =>
+      _host._handleSemanticExpansion(widget.details.row, context, expand: true);
+
+  void _handleSemanticCollapse() => _host._handleSemanticExpansion(
+    widget.details.row,
+    context,
+    expand: false,
+  );
+
+  void _handleSemanticActivate() =>
+      _host._handleSemanticActivate(widget.details.row, context);
 
   void _handleSemanticLongPress() {
     final box = context.findRenderObject();
@@ -1429,6 +1573,46 @@ class _RowItemState<T> extends State<_RowItem<T>> {
     };
   }
 
+  /// The custom semantics actions of the row [details] describes, or null
+  /// when it has none.
+  Map<CustomSemanticsAction, VoidCallback>? _customActions(
+    BuildContext context,
+    SliverDirectoryTree<T> config,
+    DirectoryTreeRowDetails<T> details,
+  ) {
+    final failed = details.loadStatus == DirectoryLoadStatus.failed;
+    // VoiceOver has no expand and collapse actions.
+    final platform = defaultTargetPlatform;
+    final expansionActions =
+        details.isExpandable &&
+        !kIsWeb &&
+        (platform == TargetPlatform.iOS || platform == TargetPlatform.macOS);
+    final activates = config.onActivate != null;
+    if (!failed && !expansionActions && !activates) return null;
+    final localizations =
+        Localizations.of<MaterialLocalizations>(
+          context,
+          MaterialLocalizations,
+        ) ??
+        const DefaultMaterialLocalizations();
+    final expanded = details.row.isExpanded;
+    return <CustomSemanticsAction, VoidCallback>{
+      if (activates)
+        CustomSemanticsAction(label: config.activateSemanticsLabel):
+            _handleSemanticActivate,
+      if (failed)
+        CustomSemanticsAction(
+          label: localizations.refreshIndicatorSemanticLabel,
+        ): _handleSemanticExpand,
+      if (expansionActions && expanded)
+        CustomSemanticsAction(label: localizations.expandedIconTapHint):
+            _handleSemanticCollapse,
+      if (expansionActions && !expanded)
+        CustomSemanticsAction(label: localizations.collapsedIconTapHint):
+            _handleSemanticExpand,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final config = _host.widget;
@@ -1463,15 +1647,31 @@ class _RowItemState<T> extends State<_RowItem<T>> {
     child = Semantics(
       container: true,
       label: row.label,
+      value: switch (details.loadStatus) {
+        DirectoryLoadStatus.loading => config.loadingSemanticsLabel,
+        DirectoryLoadStatus.failed => config.loadFailedSemanticsLabel,
+        DirectoryLoadStatus.notLoaded || DirectoryLoadStatus.loaded => null,
+      },
       hint: _host._levelHint(row.depth + 1),
       selected: details.isSelected,
       expanded: details.isExpandable ? row.isExpanded : null,
       checked: checkState == null ? null : checkState == CheckState.checked,
       mixed: checkState == null ? null : checkState == CheckState.partial,
+      // The keyboard cursor, while the tree has keyboard focus. Only that
+      // row changes on a focus move.
+      focusable: details.isFocused && details.hasFocus ? true : null,
+      focused: details.isFocused && details.hasFocus ? true : null,
       onTap: _handleSemanticTap,
       onLongPress: config.onRowSecondaryTap == null
           ? null
           : _handleSemanticLongPress,
+      onExpand: details.isExpandable && !row.isExpanded
+          ? _handleSemanticExpand
+          : null,
+      onCollapse: details.isExpandable && row.isExpanded
+          ? _handleSemanticCollapse
+          : null,
+      customSemanticsActions: _customActions(context, config, details),
       child: child,
     );
     if (_animatesIn) {

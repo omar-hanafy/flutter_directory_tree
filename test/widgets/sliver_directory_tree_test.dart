@@ -1,3 +1,6 @@
+import 'dart:ui' show CheckedState;
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
@@ -336,6 +339,328 @@ void main() {
     });
   });
 
+  group('screen readers', () {
+    SemanticsData dataOf(WidgetTester tester, NodeId id) =>
+        tester.getSemantics(rowOf(id)).getSemanticsData();
+
+    CustomSemanticsAction? customAction(
+      WidgetTester tester,
+      NodeId id,
+      String label,
+    ) {
+      final ids = dataOf(tester, id).customSemanticsActionIds ?? const [];
+      for (final id in ids) {
+        final action = CustomSemanticsAction.getAction(id);
+        if (action?.label == label) return action;
+      }
+      return null;
+    }
+
+    testWidgets('the keyboard-focused row is the focused node while the tree '
+        'has focus', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      final focusNode = FocusNode();
+      addTearDown(focusNode.dispose);
+      final counter = BuildCounter<int>();
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          focusNode: focusNode,
+          rowBuilder: counter.build,
+        ),
+      );
+      controller.focus(lib);
+      focusNode.requestFocus();
+      await tester.pump();
+      expect(tester.getSemantics(rowOf(lib)), isSemantics(isFocused: true));
+      expect(tester.getSemantics(rowOf(lib)), isSemantics(isFocusable: true));
+      expect(tester.getSemantics(rowOf(src)), isSemantics(isFocused: false));
+
+      // A focus move changes two rows and rebuilds only those.
+      counter.take();
+      controller.moveFocus(TreeFocusMove.next);
+      await tester.pump();
+      expect(counter.take(), {lib, src});
+      expect(tester.getSemantics(rowOf(src)), isSemantics(isFocused: true));
+      expect(tester.getSemantics(rowOf(lib)), isSemantics(isFocused: false));
+
+      // Without keyboard focus no row claims it.
+      focusNode.unfocus();
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(rowOf(src)), isSemantics(isFocused: false));
+      semantics.dispose();
+    });
+
+    testWidgets('an Open action activates rows when onActivate is set', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      final activated = <NodeId>[];
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          onActivate: (row) => activated.add(row.id),
+        ),
+      );
+      final open = customAction(tester, readme, 'Open');
+      expect(open, isNotNull);
+      tester.semantics.customAction(find.semantics.byLabel('README.md'), open!);
+      await tester.pump();
+      expect(activated, [readme]);
+      expect(controller.selection.selected, {readme});
+      expect(controller.focusedId, readme);
+
+      // A directory toggles once, as with Enter or a double-click.
+      tester.semantics.customAction(find.semantics.byLabel('src'), open);
+      await tester.pump();
+      expect(activated, [readme, src]);
+      expect(controller.isExpanded(src), isFalse);
+
+      // Without onActivate there is no such action.
+      await tester.pumpWidget(treeApp(controller: controller));
+      expect(customAction(tester, readme, 'Open'), isNull);
+      semantics.dispose();
+    });
+
+    testWidgets('expandable rows offer expand or collapse', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController()..collapse(src);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, expandOnTap: false),
+      );
+      expect(dataOf(tester, src).hasAction(SemanticsAction.expand), isTrue);
+      expect(dataOf(tester, src).hasAction(SemanticsAction.collapse), isFalse);
+      expect(dataOf(tester, lib).hasAction(SemanticsAction.collapse), isTrue);
+      expect(dataOf(tester, readme).hasAction(SemanticsAction.expand), isFalse);
+      tester.semantics.performAction(
+        find.semantics.byLabel('src'),
+        SemanticsAction.expand,
+      );
+      await tester.pump();
+      expect(controller.isExpanded(src), isTrue);
+      expect(controller.focusedId, src);
+      tester.semantics.performAction(
+        find.semantics.byLabel('src'),
+        SemanticsAction.collapse,
+      );
+      await tester.pump();
+      expect(controller.isExpanded(src), isFalse);
+      // Neither selects.
+      expect(controller.selection.isEmpty, isTrue);
+      semantics.dispose();
+    });
+
+    testWidgets('loading and failed rows say so, and failed rows offer a '
+        'retry', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final loader = PendingLoader<int>();
+      const lazy = NodeId('/lazy');
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry<int>.directory('/lazy'),
+        ]),
+        loadChildren: loader.call,
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(treeApp(controller: controller));
+      controller.expand(lazy);
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getSemantics(rowOf(lazy)), isSemantics(value: 'Loading'));
+
+      loader.fail(lazy, StateError('offline'));
+      await tester.pump();
+      await tester.pump();
+      expect(
+        tester.getSemantics(rowOf(lazy)),
+        isSemantics(label: 'lazy', value: 'Failed to load'),
+      );
+      // The expander does not add a node of its own that says Expand.
+      expect(find.semantics.byLabel('Expand'), findsNothing);
+      final retry = customAction(tester, lazy, 'Refresh');
+      expect(retry, isNotNull);
+      tester.semantics.customAction(find.semantics.byLabel('lazy'), retry!);
+      await tester.pump();
+      await tester.pump();
+      expect(loader.calls, [lazy, lazy]);
+      expect(controller.loadStatusOf(lazy), DirectoryLoadStatus.loading);
+      semantics.dispose();
+    });
+
+    testWidgets('checkboxes add no node of their own; tapping a row toggles '
+        'its box', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          checkboxMode: DirectoryTreeCheckboxMode.checks,
+        ),
+      );
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      // One node per row.
+      expect(
+        find.semantics.byPredicate(
+          (node) =>
+              node.getSemanticsData().flagsCollection.isChecked !=
+              CheckedState.none,
+        ),
+        findsNWidgets(9),
+      );
+      tester.semantics.tap(find.semantics.byLabel('a.dart'));
+      await tester.pump();
+      expect(controller.checkStateOf(aDart), CheckState.checked);
+      expect(controller.focusedId, aDart);
+      expect(controller.selection.isEmpty, isTrue);
+      tester.semantics.tap(find.semantics.byLabel('a.dart'));
+      await tester.pump();
+      expect(controller.checkStateOf(aDart), CheckState.unchecked);
+
+      // In selection mode a tap toggles that row only.
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          checkboxMode: DirectoryTreeCheckboxMode.selection,
+        ),
+      );
+      tester.semantics.tap(find.semantics.byLabel('lib'));
+      tester.semantics.tap(find.semantics.byLabel('README.md'));
+      await tester.pump();
+      expect(controller.selection.selected, {lib, readme});
+      semantics.dispose();
+    });
+
+    testWidgets('a box that cannot change leaves the tap a plain click', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        expansion: const ExpansionState.expanded(),
+        checks: const SelectionState.empty(mode: SelectionMode.single),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          checkboxMode: DirectoryTreeCheckboxMode.checks,
+        ),
+      );
+      // src has two leaves: single-mode checks cannot hold it.
+      tester.semantics.tap(find.semantics.byLabel('src'));
+      await tester.pump();
+      expect(controller.checks.isEmpty, isTrue);
+      expect(controller.selection.selected, {src});
+      semantics.dispose();
+    });
+
+    testWidgets('the labels are parameters', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final loader = PendingLoader<int>();
+      const lazy = NodeId('/lazy');
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry<int>.directory('/lazy'),
+        ]),
+        loadChildren: loader.call,
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CustomScrollView(
+            slivers: [
+              SliverDirectoryTree<int>(
+                controller: controller,
+                onActivate: (_) {},
+                activateSemanticsLabel: 'Öffnen',
+                loadingSemanticsLabel: 'Lädt',
+                loadFailedSemanticsLabel: 'Fehler',
+              ),
+            ],
+          ),
+        ),
+      );
+      expect(customAction(tester, lazy, 'Öffnen'), isNotNull);
+      expect(customAction(tester, lazy, 'Open'), isNull);
+      controller.expand(lazy);
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getSemantics(rowOf(lazy)), isSemantics(value: 'Lädt'));
+      loader.fail(lazy, StateError('offline'));
+      await tester.pump();
+      await tester.pump();
+      expect(tester.getSemantics(rowOf(lazy)), isSemantics(value: 'Fehler'));
+      semantics.dispose();
+    });
+
+    testWidgets(
+      'VoiceOver platforms also get custom expand and collapse actions',
+      (tester) async {
+        final semantics = tester.ensureSemantics();
+        final controller = expandedController()..collapse(src);
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(treeApp(controller: controller));
+        final voiceOver =
+            defaultTargetPlatform == TargetPlatform.iOS ||
+            defaultTargetPlatform == TargetPlatform.macOS;
+        final expand = customAction(tester, src, 'Expand');
+        final collapse = customAction(tester, lib, 'Collapse');
+        expect(expand != null, voiceOver);
+        expect(collapse != null, voiceOver);
+        expect(customAction(tester, readme, 'Expand'), isNull);
+        if (expand != null) {
+          tester.semantics.customAction(find.semantics.byLabel('src'), expand);
+          await tester.pump();
+          expect(controller.isExpanded(src), isTrue);
+          tester.semantics.customAction(
+            find.semantics.byLabel('lib'),
+            collapse!,
+          );
+          await tester.pump();
+          expect(controller.isExpanded(lib), isFalse);
+        }
+        semantics.dispose();
+      },
+      variant: TargetPlatformVariant.all(),
+    );
+
+    testWidgets('default rows meet the screen reader guidelines', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final loader = PendingLoader<int>();
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry<int>.directory('/a/lazy'),
+          TreeEntry<int>.file('/a/b/c.txt'),
+          TreeEntry<int>.file('/a/d.txt'),
+        ]),
+        expansion: const ExpansionState.expanded(),
+        loadChildren: loader.call,
+      );
+      addTearDown(controller.dispose);
+      for (final mode in DirectoryTreeCheckboxMode.values) {
+        await tester.pumpWidget(
+          treeApp(
+            controller: controller,
+            checkboxMode: mode,
+            onActivate: (_) {},
+            onRowSecondaryTap: (_, _) {},
+          ),
+        );
+        await tester.pump();
+        await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      }
+      semantics.dispose();
+    });
+  });
+
   group('right-to-left', () {
     testWidgets('mirrors the row content', (tester) async {
       final controller = expandedController();
@@ -384,5 +709,15 @@ void main() {
     expect(description, contains('no expand on tap'));
     expect(description, contains('checkboxMode: checks'));
     expect(description, contains('has onActivate'));
+    expect(description, isNot(contains('activateSemanticsLabel')));
+    final localized = SliverDirectoryTree<int>(
+      controller: controller,
+      activateSemanticsLabel: 'Öffnen',
+      loadingSemanticsLabel: 'Lädt',
+      loadFailedSemanticsLabel: 'Fehler',
+    ).toStringDeep();
+    expect(localized, contains('activateSemanticsLabel: "Öffnen"'));
+    expect(localized, contains('loadingSemanticsLabel: "Lädt"'));
+    expect(localized, contains('loadFailedSemanticsLabel: "Fehler"'));
   });
 }

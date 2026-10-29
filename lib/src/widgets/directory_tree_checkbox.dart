@@ -9,6 +9,8 @@ import 'package:flutter_directory_tree/src/theme/directory_tree_theme.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';
 import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
+// Imported only so documentation references resolve.
+import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 
 /// The checkbox of a row, for [DirectoryTreeRowDetails.checkboxMode].
 ///
@@ -33,11 +35,15 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 /// A click also moves the controller's focus to the row and gives the tree
 /// keyboard focus, but never selects the row in checks mode or activates
 /// it: the click does not reach the row's own click handling. The checkbox
-/// takes no keyboard focus of its own (the tree's keys toggle it) and keeps
-/// its Material semantics, so assistive technologies can toggle it
-/// directly. It is a square of [DirectoryTreeThemeData.expanderSize] and
-/// brings its own transparent [Material], so it works without a
-/// [Scaffold] around the tree.
+/// takes no keyboard focus of its own (the tree's keys toggle it). It is a
+/// square of [DirectoryTreeThemeData.expanderSize] and brings its own
+/// transparent [Material], so it works without a [Scaffold] around the
+/// tree.
+///
+/// Inside a [SliverDirectoryTree] the checkbox adds nothing to the
+/// semantics tree: the row's node already reports the checked or mixed
+/// state, and its tap action toggles the box. Elsewhere it is a checkbox
+/// labeled with [TreeRow.label].
 class DirectoryTreeCheckbox<T> extends StatelessWidget {
   /// Creates the checkbox of the row described by [details].
   const DirectoryTreeCheckbox({super.key, required this.details});
@@ -62,46 +68,28 @@ class DirectoryTreeCheckbox<T> extends StatelessWidget {
       CheckState.partial => tristate ? null : false,
       CheckState.unchecked => false,
     };
-    final controller = details.controller;
-    final id = details.row.id;
-    final enabled = tristate
-        // Unchecking is always allowed; checking only where the checks'
-        // mode allows it.
-        ? state == CheckState.checked ||
-              controller.checks.canCheck(controller.tree, id)
-        : controller.isSelectable(id);
+    final enabled = canToggleCheckbox(details);
+    Widget checkbox = Checkbox(
+      value: value,
+      tristate: tristate,
+      onChanged: enabled ? (_) => toggleCheckbox(context, details) : null,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      visualDensity: VisualDensity.compact,
+      splashRadius: size / 2,
+    );
+    // In a sliver row the row's node is the checkbox for screen readers; a
+    // second, smaller node would repeat the state without a label.
+    checkbox = RowSemanticsScope.isInside(context)
+        ? ExcludeSemantics(child: checkbox)
+        : MergeSemantics(
+            child: Semantics(label: details.row.label, child: checkbox),
+          );
     return ExcludeFocus(
       child: SizedBox.square(
         dimension: size,
-        child: Material(
-          type: MaterialType.transparency,
-          child: Checkbox(
-            value: value,
-            tristate: tristate,
-            onChanged: enabled ? (_) => _toggle(context) : null,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            visualDensity: VisualDensity.compact,
-            splashRadius: size / 2,
-          ),
-        ),
+        child: Material(type: MaterialType.transparency, child: checkbox),
       ),
     );
-  }
-
-  void _toggle(BuildContext context) {
-    final controller = details.controller;
-    final id = details.row.id;
-    requestTreeFocus(context);
-    switch (details.checkboxMode) {
-      case DirectoryTreeCheckboxMode.checks:
-        controller
-          ..toggleChecked(id)
-          ..focus(id);
-      case DirectoryTreeCheckboxMode.selection:
-        controller.toggleSelected(id);
-      case DirectoryTreeCheckboxMode.none:
-        break;
-    }
   }
 
   @override

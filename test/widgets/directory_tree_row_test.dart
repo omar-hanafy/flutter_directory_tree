@@ -433,20 +433,14 @@ void main() {
       expect(controller.loadStatusOf(lazy), DirectoryLoadStatus.loaded);
     });
 
-    testWidgets('is a button labeled Expand or Collapse', (tester) async {
+    testWidgets('adds no semantics node inside the sliver', (tester) async {
       final semantics = tester.ensureSemantics();
       final controller = expandedController()..collapse(src);
       addTearDown(controller.dispose);
       await tester.pumpWidget(treeApp(controller: controller));
-      expect(
-        tester.getSemantics(
-          find.descendant(
-            of: rowOf(lib),
-            matching: find.byType(DirectoryTreeExpander<int>),
-          ),
-        ),
-        matchesSemantics(label: 'Collapse', isButton: true, hasTapAction: true),
-      );
+      // The row nodes carry the expanded state and the actions instead.
+      expect(find.semantics.byLabel('Expand'), findsNothing);
+      expect(find.semantics.byLabel('Collapse'), findsNothing);
       expect(
         tester.getSemantics(
           find.descendant(
@@ -454,10 +448,73 @@ void main() {
             matching: find.byType(DirectoryTreeExpander<int>),
           ),
         ),
+        same(tester.getSemantics(rowOf(src))),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('outside the sliver: a button labeled Expand, Collapse, or '
+        'Refresh after a failed load', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final loader = PendingLoader<int>();
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        expansion: const ExpansionState.expanded(),
+        loadChildren: loader.call,
+      )..collapse(src);
+      addTearDown(controller.dispose);
+
+      Widget expander(NodeId id, DirectoryLoadStatus status) {
+        final rows = controller.rows;
+        final index = rows.indexOfNode(id);
+        return SizedBox(
+          height: 30,
+          child: DirectoryTreeExpander<int>(
+            details: DirectoryTreeRowDetails<int>(
+              controller: controller,
+              row: rows[index],
+              index: index,
+              isSelected: false,
+              isFocused: false,
+              hasFocus: false,
+              isHovered: false,
+              checkboxMode: DirectoryTreeCheckboxMode.none,
+              checkState: null,
+              loadStatus: status,
+              isExpandable: true,
+              matchRanges: const [],
+            ),
+          ),
+        );
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Material(
+            child: Column(
+              children: [
+                expander(lib, DirectoryLoadStatus.loaded),
+                expander(src, DirectoryLoadStatus.loaded),
+                expander(testDir, DirectoryLoadStatus.failed),
+              ],
+            ),
+          ),
+        ),
+      );
+      expect(
+        tester.getSemantics(find.byType(DirectoryTreeExpander<int>).at(0)),
+        matchesSemantics(label: 'Collapse', isButton: true, hasTapAction: true),
+      );
+      expect(
+        tester.getSemantics(find.byType(DirectoryTreeExpander<int>).at(1)),
         matchesSemantics(label: 'Expand', isButton: true, hasTapAction: true),
       );
+      // A failed load is retried, not expanded.
+      expect(
+        tester.getSemantics(find.byType(DirectoryTreeExpander<int>).at(2)),
+        matchesSemantics(label: 'Refresh', isButton: true, hasTapAction: true),
+      );
       tester.semantics.tap(find.semantics.byLabel('Expand'));
-      await tester.pump();
       expect(controller.isExpanded(src), isTrue);
       expect(controller.selection.isEmpty, isTrue);
       semantics.dispose();
@@ -604,6 +661,45 @@ void main() {
       await tester.pumpWidget(treeApp(controller: controller));
       expect(find.byType(Checkbox), findsNothing);
       expect(find.byType(DirectoryTreeCheckbox<int>), findsNothing);
+    });
+
+    testWidgets('outside the sliver it is one checkbox labeled by the row', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: DirectoryTreeCheckbox<int>(
+            details: DirectoryTreeRowDetails<int>(
+              controller: controller,
+              row: controller.rows[8],
+              index: 8,
+              isSelected: false,
+              isFocused: false,
+              hasFocus: false,
+              isHovered: false,
+              checkboxMode: DirectoryTreeCheckboxMode.checks,
+              checkState: CheckState.unchecked,
+              loadStatus: DirectoryLoadStatus.loaded,
+              isExpandable: false,
+              matchRanges: const [],
+            ),
+          ),
+        ),
+      );
+      expect(
+        tester.getSemantics(find.byType(Checkbox)),
+        isSemantics(
+          label: 'README.md',
+          hasCheckedState: true,
+          isChecked: false,
+          hasTapAction: true,
+        ),
+      );
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      semantics.dispose();
     });
 
     testWidgets('takes no keyboard focus and works without a Scaffold', (

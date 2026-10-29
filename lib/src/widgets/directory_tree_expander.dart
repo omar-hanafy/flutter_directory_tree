@@ -9,6 +9,8 @@ import 'package:flutter_directory_tree/src/theme/directory_tree_theme.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';
 import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
+// Imported only so documentation references resolve.
+import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 
 /// The expand arrow of a row: a chevron that toggles the directory, a
 /// progress indicator while its children load, or an error icon that
@@ -35,9 +37,18 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 /// height of a row is the hit area. A click also moves the controller's
 /// focus to the row and gives the tree keyboard focus, but never selects
 /// the row or activates it: the click does not reach the row's own click
-/// handling. The chevron and the error icon are buttons for assistive
-/// technologies, labeled with [MaterialLocalizations.collapsedIconTapHint]
-/// ("Expand") or [MaterialLocalizations.expandedIconTapHint] ("Collapse").
+/// handling.
+///
+/// Inside a [SliverDirectoryTree] the expander adds nothing to the
+/// semantics tree: the row's node reports the expanded state and the load
+/// state, and offers the expand, collapse, and retry actions, so screen
+/// readers get one node per row with a touch target as large as the row.
+/// Elsewhere the chevron is a button labeled with
+/// [MaterialLocalizations.collapsedIconTapHint] ("Expand") or
+/// [MaterialLocalizations.expandedIconTapHint] ("Collapse"), and the error
+/// icon a button labeled with
+/// [MaterialLocalizations.refreshIndicatorSemanticLabel] ("Refresh") that
+/// retries the load.
 class DirectoryTreeExpander<T> extends StatelessWidget {
   /// Creates the expander of the row described by [details].
   const DirectoryTreeExpander({super.key, required this.details});
@@ -78,7 +89,7 @@ class DirectoryTreeExpander<T> extends StatelessWidget {
           color: Theme.of(context).colorScheme.error,
         );
         onTap = () => _retry(context);
-        semanticsLabel = localizations.collapsedIconTapHint;
+        semanticsLabel = localizations.refreshIndicatorSemanticLabel;
       case DirectoryLoadStatus.notLoaded:
       case DirectoryLoadStatus.loaded:
         if (details.isExpandable) {
@@ -116,17 +127,22 @@ class DirectoryTreeExpander<T> extends StatelessWidget {
       ),
     );
     if (onTap == null) return ExcludeSemantics(child: box);
+    final Widget button = GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      onTap: onTap,
+      child: MouseRegion(cursor: SystemMouseCursors.click, child: box),
+    );
+    // In a sliver row the row's node carries the state and the actions.
+    if (RowSemanticsScope.isInside(context)) {
+      return ExcludeSemantics(child: button);
+    }
     return Semantics(
       button: true,
       label: semanticsLabel,
       onTap: onTap,
       excludeSemantics: true,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        excludeFromSemantics: true,
-        onTap: onTap,
-        child: MouseRegion(cursor: SystemMouseCursors.click, child: box),
-      ),
+      child: button,
     );
   }
 
