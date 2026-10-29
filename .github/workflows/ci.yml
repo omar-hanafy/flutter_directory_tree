@@ -106,15 +106,23 @@ jobs:
 
       # Chrome sometimes stops delivering a suite's compiled module while it
       # loads, and flutter test has no load timeout, so the run waits with no
-      # test running. Only that timeout (exit 124) runs the suite again; a
-      # failing test fails the step at once.
+      # test running. Only that timeout (exit 124, or 137 when the tool
+      # ignores the stop) runs the suite again, and only when no test failed
+      # before it; a failing test fails the step.
       - name: Test compiled to WebAssembly (Chrome)
         shell: bash
         run: |
           for attempt in 1 2 3; do
             status=0
-            timeout 480 flutter test --platform chrome --wasm || status=$?
-            if [ "$status" -ne 124 ]; then exit "$status"; fi
+            timeout -k 30 480 flutter test --platform chrome --wasm 2>&1 \
+              | tee "$RUNNER_TEMP/wasm-test.log" || status=$?
+            if [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; then
+              exit "$status"
+            fi
+            if grep -qF '[E]' "$RUNNER_TEMP/wasm-test.log"; then
+              echo "::error::A test failed before the Wasm suite stopped."
+              exit 1
+            fi
             echo "::warning::The Wasm suite stopped while loading (attempt $attempt); running it again."
           done
           exit 124
