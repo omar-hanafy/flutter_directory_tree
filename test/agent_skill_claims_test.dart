@@ -21,6 +21,7 @@
 @TestOn('vm')
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -657,8 +658,109 @@ void main() {
       await controller.loadChildren(root);
       expect(controller.loadStatusOf(root), DirectoryLoadStatus.loaded);
       final skill = _normalize(File('$_useSkill/SKILL.md').readAsStringSync());
-      expect(skill, contains('the folder keeps its rows while it loads'));
-      expect(skill, contains('A failed reload keeps the contents'));
+      expect(
+        skill,
+        contains(
+          'the folder keeps its rows, and the loads below it keep running',
+        ),
+      );
+      expect(skill, contains('A failed reload changes nothing below it'));
+    });
+
+    test('a reload restarts after updateTree, and a failed reload leaves '
+        'the loads below it running', () async {
+      final pending = <String, List<Completer<List<TreeEntry<Object?>>>>>{};
+      final controller = DirectoryTreeController<Object?>(
+        tree: DirectoryTree.fromPaths(['/root/']),
+        loadChildren: (directory) {
+          final completer = Completer<List<TreeEntry<Object?>>>();
+          (pending[directory.path.toString()] ??= []).add(completer);
+          return completer.future;
+        },
+      );
+      addTearDown(controller.dispose);
+      List<String> labels() => [for (final row in controller.rows) row.label];
+      final root = controller.tree.roots.single;
+      controller.expand(root);
+      await pumpEventQueue();
+      pending['/root']!.last.complete([TreeEntry.directory('/root/a')]);
+      await pumpEventQueue();
+      expect(labels(), ['root', 'a']);
+
+      // An updateTree during a reload of an open folder starts it again.
+      unawaited(controller.reloadChildren(root));
+      await pumpEventQueue();
+      expect(pending['/root'], hasLength(2));
+      controller.updateTree((builder) => builder.addFile('/root/x.txt'));
+      await pumpEventQueue();
+      expect(pending['/root'], hasLength(3));
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.loading);
+      pending['/root']![1].complete(const []); // the discarded listing
+      pending['/root']!.last.complete([
+        TreeEntry.directory('/root/a'),
+        TreeEntry.file('/root/y.txt'),
+      ]);
+      await pumpEventQueue();
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.loaded);
+      expect(labels(), ['root', 'a', 'y.txt']);
+
+      // A failed reload leaves the load running below it alone.
+      final a = controller.tree.idOf('/root/a')!;
+      controller.expand(a);
+      await pumpEventQueue();
+      unawaited(controller.reloadChildren(root));
+      await pumpEventQueue();
+      pending['/root']!.last.completeError(StateError('offline'));
+      await pumpEventQueue();
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.failed);
+      expect(controller.loadStatusOf(a), DirectoryLoadStatus.loading);
+      pending['/root/a']!.last.complete([TreeEntry.file('/root/a/b.txt')]);
+      await pumpEventQueue();
+      expect(controller.loadStatusOf(a), DirectoryLoadStatus.loaded);
+      expect(labels(), ['root', 'a', 'b.txt', 'y.txt']);
+      final skill = _normalize(File('$_useSkill/SKILL.md').readAsStringSync());
+      expect(skill, contains('A new tree keeps unfinished refreshes'));
+    });
+
+    testWidgets('a compacted row shows the load of a folder above its node', (
+      tester,
+    ) async {
+      final pending = <String, Completer<List<TreeEntry<Object?>>>>{};
+      final controller = DirectoryTreeController<Object?>(
+        tree: DirectoryTree.fromPaths(['/r/lib/src/a.dart', '/r/README.md']),
+        expansion: const ExpansionState.expanded(),
+        compactFolders: true,
+        loadChildren: (directory) =>
+            (pending[directory.path.toString()] =
+                    Completer<List<TreeEntry<Object?>>>())
+                .future,
+      );
+      addTearDown(controller.dispose);
+      final statuses = <String, DirectoryLoadStatus>{};
+      await tester.pumpWidget(
+        _app(
+          DirectoryTreeView(
+            controller: controller,
+            rowBuilder: (context, details) {
+              statuses[details.row.label] = details.loadStatus;
+              return DirectoryTreeRow(details: details);
+            },
+          ),
+        ),
+      );
+      final lib = controller.tree.idOf('/r/lib')!;
+      expect(controller.rows.rowOf(lib)!.label, 'lib/src');
+      unawaited(controller.reloadChildren(lib));
+      await tester.pump();
+      expect(controller.loadStatusOf(lib), DirectoryLoadStatus.loading);
+      expect(statuses['lib/src'], DirectoryLoadStatus.loading);
+      pending['/r/lib']!.completeError(StateError('offline'));
+      await tester.pump();
+      expect(statuses['lib/src'], DirectoryLoadStatus.failed);
+      expect(
+        _normalize(File('$_useSkill/SKILL.md').readAsStringSync()),
+        contains('A compacted row shows the load status of every folder in it'),
+      );
     });
 
     test('lastRowsChange: previous is set while listeners run and null '

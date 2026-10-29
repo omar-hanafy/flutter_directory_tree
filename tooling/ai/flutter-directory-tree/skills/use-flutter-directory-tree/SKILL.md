@@ -248,12 +248,14 @@ or `failed`; a failed load calls `onLoadError(directory, error,
 stackTrace)`, shows an error icon, and opening the folder again (or
 clicking the icon) retries. `await controller.loadChildren(id)` waits for
 a load. `reloadChildren(id)` is a refresh button: the folder keeps its
-rows while it loads, then the listing replaces its contents in one change,
-and expansion, selection, checks, and focus stay with every node that
-still exists. A subfolder listed empty that had contents (a one-level
-loader) keeps them and is listed again, at once when open. A failed
-reload keeps the contents (status `failed`); expanding retries. Assigning a new tree discards running loads,
-and open folders whose load was discarded load again.
+rows, and the loads below it keep running, until its listing arrives;
+then the listing replaces its contents in one change, and expansion,
+selection, checks, and focus stay with every node that still exists. A
+failed reload changes nothing below it (status `failed`; expanding
+retries). A new tree keeps unfinished refreshes: such folders are listed
+on their next expand, and an open one starts again. A compacted row shows
+the load status of every folder in it. The API reference has the full
+reload rules.
 
 ```dart
 Future<DirectoryTreeController<FileSystemEntity>> openLocalFolder(

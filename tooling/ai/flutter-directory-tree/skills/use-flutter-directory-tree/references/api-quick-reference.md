@@ -90,6 +90,35 @@ void watchRows(DirectoryTreeController<Object?> controller) {
 }
 ```
 
+## Loads and reloads
+
+- `expand(id)` starts a load when the folder has no children and is
+  `notLoaded` or `failed`, or when it has children that wait to be listed
+  again; it also retries a failed load of an already open folder. In a
+  compacted row it loads the outermost folder of the row that needs it, and
+  no load starts while the filter hides the row.
+- `reloadChildren(id)`: the folder keeps its rows (status `loading`), and
+  the loads and statuses below it stay, until its listing arrives. Then
+  the loads still running below are discarded, the statuses below start
+  over, and the listing replaces the folder's contents in one change:
+  expansion, selection, checks, and focus stay with every node that still
+  exists, a checked folder stays checked (its new leaves too), and while
+  filtering a folder the user collapsed stays collapsed.
+- A subfolder that the listing returns without contents but that had
+  contents (a loader that lists one level) keeps them and is listed again:
+  at once when open, even while the filter hides it (so new matches in it
+  show), otherwise on its next expand.
+- A failed reload keeps everything (status `failed`); `expand` or
+  `loadChildren` retries.
+- A new tree (the `tree` setter or `updateTree`) restarts the load
+  statuses and discards running loads. A folder whose load was discarded
+  loads again on its next expand, at once when open. A folder with contents
+  that waits for a new listing (its reload was discarded or failed, or a
+  reload above it kept its contents) stays marked and is listed on its next
+  expand.
+- A compacted row's `loadStatus` is `loading` while any folder above its
+  node in the row loads and `failed` when one of those loads failed.
+
 ## Core types (re-exported from package:directory_tree)
 
 - `DirectoryTree.fromPaths(paths, {options})` (a trailing `/` makes a
