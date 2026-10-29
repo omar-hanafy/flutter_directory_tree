@@ -140,21 +140,76 @@ void main() {
     expect(dropped.single.nodes.single.data, 'a1');
   });
 
-  testWidgets('a configuration narrower than the controller fails an '
-      'assertion', (tester) async {
-    final controller = DirectoryTreeController<Object?>(tree: sampleTree());
-    addTearDown(controller.dispose);
-    await tester.pumpWidget(
-      DndHost(
-        controller: controller,
-        dragAndDrop: DirectoryTreeDragAndDrop<String>(onDrop: (_) {}),
+  group('a configuration narrower than the controller', () {
+    late DirectoryTreeController<Object?> controller;
+    late List<String> menus;
+    late int drops;
+
+    Widget view() => MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: 400,
+          height: 400,
+          child: DirectoryTreeView<Object?>(
+            controller: controller,
+            dragAndDrop: DirectoryTreeDragAndDrop<String>(
+              onDrop: (_) => drops++,
+            ),
+            contextMenuBuilder: (context, details) {
+              menus.add(details.row.label);
+              return [
+                MenuItemButton(onPressed: () {}, child: const Text('Item')),
+              ];
+            },
+          ),
+        ),
       ),
     );
-    final error = tester.takeException();
-    expect(error, isA<FlutterError>());
-    expect(
-      error.toString(),
-      contains('a configuration for other nodes than its controller holds'),
-    );
+
+    Future<void> pumpView(WidgetTester tester) async {
+      controller = DirectoryTreeController<Object?>(
+        tree: sampleTree(),
+        expansion: const ExpansionState.expanded(),
+      );
+      addTearDown(controller.dispose);
+      menus = [];
+      drops = 0;
+      await tester.pumpWidget(view());
+    }
+
+    testWidgets('is reported once in debug mode', (tester) async {
+      await pumpView(tester);
+      final error = tester.takeException();
+      expect(error, isA<FlutterError>());
+      expect(
+        error.toString(),
+        contains('a configuration for other nodes than its controller holds'),
+      );
+      // The same mismatch is not reported again on every build.
+      await tester.pumpWidget(view());
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('drags nothing, but a touch long-press opens the menu', (
+      tester,
+    ) async {
+      await pumpView(tester);
+      tester.takeException();
+      final gesture = await tester.startGesture(centerOf(tester, 'a1.txt'));
+      await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(menus, ['a1.txt']);
+      await tester.tapAt(const Offset(780, 580));
+      await tester.pumpAndSettle();
+      await mouseDrag(
+        tester,
+        centerOf(tester, 'a1.txt'),
+        centerOf(tester, 'b'),
+      );
+      expect(tester.takeException(), isNull);
+      expect(drops, 0);
+    });
   });
 }

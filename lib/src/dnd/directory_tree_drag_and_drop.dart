@@ -317,9 +317,11 @@ class DirectoryTreeDragAndDropScope<T> extends StatefulWidget {
   /// callbacks then receive nodes of their own type. A configuration whose
   /// type the controller's nodes do not have (a
   /// `DirectoryTreeDragAndDrop<FileInfo>` for a
-  /// `DirectoryTreeController<Object?>`) can never receive its nodes;
-  /// building the scope then throws a [FlutterError] in debug mode, and in
-  /// release mode nothing can be dragged.
+  /// `DirectoryTreeController<Object?>`) can never receive its nodes:
+  /// nothing can be dragged then, while a touch long-press released without
+  /// moving still reaches [onLongPressWithoutDrag]. In debug mode the scope
+  /// also reports a [FlutterError] through [FlutterError.reportError], once
+  /// per configuration type and controller.
   final DirectoryTreeDragAndDrop<T> dragAndDrop;
 
   /// The subtree that holds the rows, usually a [CustomScrollView].
@@ -468,8 +470,38 @@ class _DirectoryTreeDragAndDropScopeState<T>
   @override
   Widget build(BuildContext context) {
     assert(() {
-      if (!widget.dragAndDrop._canHandleNodesOf(widget.controller)) {
-        throw FlutterError.fromParts(<DiagnosticsNode>[
+      _debugReportTypeMismatch();
+      return true;
+    }(), 'reports a configuration that cannot take the nodes');
+    return _DragAndDropScopeMarker(scope: this, child: widget.child);
+  }
+
+  // The configuration type and the controller whose mismatch was reported
+  // last, so a rebuild (with a new but equally typed configuration) does
+  // not report it again.
+  (Type, Object)? _debugReportedMismatch;
+
+  /// Reports, once per configuration type and controller, a configuration
+  /// that
+  /// cannot take the controller's nodes. The subtree still builds: rows
+  /// cannot be dragged, but long presses still work.
+  void _debugReportTypeMismatch() {
+    final config = widget.dragAndDrop;
+    final controller = widget.controller;
+    if (config._canHandleNodesOf(controller)) {
+      _debugReportedMismatch = null;
+      return;
+    }
+    final reported = _debugReportedMismatch;
+    if (reported != null &&
+        reported.$1 == config.runtimeType &&
+        identical(reported.$2, controller)) {
+      return;
+    }
+    _debugReportedMismatch = (config.runtimeType, controller);
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: FlutterError.fromParts(<DiagnosticsNode>[
           ErrorSummary(
             'DirectoryTreeDragAndDropScope got a configuration for other '
             'nodes than its controller holds.',
@@ -484,11 +516,11 @@ class _DirectoryTreeDragAndDropScopeState<T>
             'Give the configuration the type argument of the controller '
             '(or a wider one, such as Object?).',
           ),
-        ]);
-      }
-      return true;
-    }(), 'the configuration cannot take the controller\'s nodes');
-    return _DragAndDropScopeMarker(scope: this, child: widget.child);
+        ]),
+        library: 'flutter_directory_tree',
+        context: ErrorDescription('while building a drag and drop scope'),
+      ),
+    );
   }
 
   /// Whether a mouse, trackpad, or stylus press that moved past the slop
@@ -534,13 +566,13 @@ class _DirectoryTreeDragAndDropScopeState<T>
     return session;
   }
 
-  /// The nodes a drag from the row [rowId] moves, and whether `canDrag`
-  /// allows it; `null` when the row's node is gone or the configuration
-  /// cannot take the controller's nodes.
+  /// The nodes a drag from the row [rowId] moves, and whether it may start:
+  /// `canDrag` allows it and the configuration can take the controller's
+  /// nodes (a refused drag still reports a touch long-press); `null` when
+  /// the row's node is gone.
   _PreparedDrag<T>? _prepare(NodeId rowId) {
     final controller = widget.controller;
     final config = widget.dragAndDrop;
-    if (!config._canHandleNodesOf(controller)) return null;
     final tree = controller.tree;
     final node = tree[rowId];
     if (node == null) return null;
@@ -548,7 +580,11 @@ class _DirectoryTreeDragAndDropScopeState<T>
         ? _outermostNodes(tree, controller.selectedNodes)
         : List<TreeNode<T>>.unmodifiable(<TreeNode<T>>[node]);
     if (nodes.isEmpty) return null;
-    return (nodes: nodes, draggable: config._allowsDrag(nodes));
+    return (
+      nodes: nodes,
+      draggable:
+          config._canHandleNodesOf(controller) && config._allowsDrag(nodes),
+    );
   }
 
   /// Ends [session] without a drop: removes its feedback, timers, and
