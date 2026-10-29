@@ -17,8 +17,8 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// The search field filters the rows as the user types, its down arrow
 /// moves the keyboard focus into the tree, and Ctrl+F (Cmd+F on macOS)
 /// moves it back to the search field from anywhere in the panel. The
-/// toolbar shows [title], expand-all and collapse-all buttons, and
-/// [actions].
+/// toolbar shows [title], [actions], and expand-all and collapse-all
+/// buttons labeled [expandAllTooltip] and [collapseAllTooltip].
 ///
 /// ```dart
 /// Expanded(
@@ -33,7 +33,9 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// Every parameter from [rowBuilder] on is passed to the
 /// [DirectoryTreeView] unchanged; see that class for their meaning. Use
 /// [toolbar] to replace the toolbar, [showToolbar] and [showSearch] to hide
-/// parts. Like the view, the panel needs a bounded height.
+/// parts. Every parameter may change between builds; the tree keeps its
+/// scroll position and keyboard focus when parts come and go. Like the
+/// view, the panel needs a bounded height.
 class DirectoryTreePanel<T> extends StatefulWidget {
   /// Creates an explorer pane for [controller].
   const DirectoryTreePanel({
@@ -45,6 +47,8 @@ class DirectoryTreePanel<T> extends StatefulWidget {
     this.showToolbar = true,
     this.showSearch = true,
     this.searchHintText,
+    this.expandAllTooltip = 'Expand all',
+    this.collapseAllTooltip = 'Collapse all',
     this.autofocus = false,
     this.rowBuilder,
     this.checkboxMode = DirectoryTreeCheckboxMode.none,
@@ -65,6 +69,7 @@ class DirectoryTreePanel<T> extends StatefulWidget {
     this.semanticLabel,
     this.levelSemanticsHint,
     this.emptyBuilder,
+    this.selectionFollowsFocus = true,
   });
 
   /// The state every part of the panel shows and changes.
@@ -100,6 +105,20 @@ class DirectoryTreePanel<T> extends StatefulWidget {
   /// The hint of the search field;
   /// [MaterialLocalizations.searchFieldLabel] when `null`.
   final String? searchHintText;
+
+  /// The tooltip and semantics label of the default toolbar's expand-all
+  /// button; the English `Expand all` by default.
+  ///
+  /// Pass a translation to localize the default toolbar. Ignored when
+  /// [toolbar] is given. See [DirectoryTreeToolbar.expandAllTooltip].
+  final String expandAllTooltip;
+
+  /// The tooltip and semantics label of the default toolbar's collapse-all
+  /// button; the English `Collapse all` by default.
+  ///
+  /// Pass a translation to localize the default toolbar. Ignored when
+  /// [toolbar] is given. See [DirectoryTreeToolbar.collapseAllTooltip].
+  final String collapseAllTooltip;
 
   /// Whether the tree takes the keyboard focus when the panel first
   /// appears, if nothing else in its focus scope has it; false by default.
@@ -164,6 +183,9 @@ class DirectoryTreePanel<T> extends StatefulWidget {
 
   /// See [DirectoryTreeView.emptyBuilder].
   final WidgetBuilder? emptyBuilder;
+
+  /// See [DirectoryTreeView.selectionFollowsFocus].
+  final bool selectionFollowsFocus;
 
   @override
   State<DirectoryTreePanel<T>> createState() => _DirectoryTreePanelState<T>();
@@ -238,6 +260,9 @@ class _DirectoryTreePanelState<T> extends State<DirectoryTreePanel<T>> {
     super.dispose();
   }
 
+  // Keeps the view's state when the parts above it come and go.
+  final GlobalKey _viewKey = GlobalKey(debugLabel: 'DirectoryTreePanel view');
+
   void _focusSearch() => _searchFocusNode.requestFocus();
 
   @override
@@ -253,6 +278,8 @@ class _DirectoryTreePanelState<T> extends State<DirectoryTreePanel<T>> {
                 controller: controller,
                 title: widget.title,
                 actions: widget.actions,
+                expandAllTooltip: widget.expandAllTooltip,
+                collapseAllTooltip: widget.collapseAllTooltip,
               ),
         if (widget.showSearch)
           Padding(
@@ -266,6 +293,7 @@ class _DirectoryTreePanelState<T> extends State<DirectoryTreePanel<T>> {
           ),
         Expanded(
           child: DirectoryTreeView<T>(
+            key: _viewKey,
             controller: controller,
             rowBuilder: widget.rowBuilder,
             checkboxMode: widget.checkboxMode,
@@ -287,25 +315,27 @@ class _DirectoryTreePanelState<T> extends State<DirectoryTreePanel<T>> {
             semanticLabel: widget.semanticLabel,
             levelSemanticsHint: widget.levelSemanticsHint,
             emptyBuilder: widget.emptyBuilder,
+            selectionFollowsFocus: widget.selectionFollowsFocus,
           ),
         ),
       ],
     );
-    if (widget.showSearch) {
-      final apple =
-          defaultTargetPlatform == TargetPlatform.macOS ||
-          defaultTargetPlatform == TargetPlatform.iOS;
-      result = CallbackShortcuts(
-        bindings: <ShortcutActivator, VoidCallback>{
+    final apple =
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.iOS;
+    // Always present (empty without the search field), so that hiding the
+    // search field keeps the element types above the tree.
+    result = CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        if (widget.showSearch)
           SingleActivator(
             LogicalKeyboardKey.keyF,
             control: !apple,
             meta: apple,
           ): _focusSearch,
-        },
-        child: result,
-      );
-    }
+      },
+      child: result,
+    );
     // The search field and the toolbar's buttons need a Material ancestor;
     // a transparent one keeps the panel usable outside a Scaffold.
     return Material(type: MaterialType.transparency, child: result);

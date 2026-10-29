@@ -175,4 +175,43 @@ void main() {
     await tester.pump();
     expect(find.text('No files'), findsOneWidget);
   });
+
+  testWidgets('the default toolbar takes localized labels', (tester) async {
+    final controller = expandedController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      hostApp(
+        DirectoryTreePanel<int>(
+          controller: controller,
+          expandAllTooltip: 'Alles ausklappen',
+          collapseAllTooltip: 'Alles einklappen',
+        ),
+        height: 400,
+      ),
+    );
+    expect(find.byTooltip('Alles ausklappen'), findsOneWidget);
+    expect(find.byTooltip('Alles einklappen'), findsOneWidget);
+    expect(find.byTooltip('Expand all'), findsNothing);
+    await tester.tap(find.byTooltip('Alles einklappen'));
+    await tester.pump();
+    expect(controller.isExpanded(repo), isFalse);
+  });
+
+  testWidgets('selectionFollowsFocus reaches the view', (tester) async {
+    final controller = expandedController();
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      hostApp(
+        DirectoryTreePanel<int>(
+          controller: controller,
+          selectionFollowsFocus: false,
+        ),
+        height: 400,
+      ),
+    );
+    final view = tester.widget<DirectoryTreeView<int>>(
+      find.byType(DirectoryTreeView<int>),
+    );
+    expect(view.selectionFollowsFocus, isFalse);
+  });
 }
