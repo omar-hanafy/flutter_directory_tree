@@ -104,8 +104,20 @@ jobs:
       - name: Test compiled to JavaScript (Chrome)
         run: flutter test --platform chrome
 
+      # Chrome sometimes stops delivering a suite's compiled module while it
+      # loads, and flutter test has no load timeout, so the run waits with no
+      # test running. Only that timeout (exit 124) runs the suite again; a
+      # failing test fails the step at once.
       - name: Test compiled to WebAssembly (Chrome)
-        run: flutter test --platform chrome --wasm
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            status=0
+            timeout 480 flutter test --platform chrome --wasm || status=$?
+            if [ "$status" -ne 124 ]; then exit "$status"; fi
+            echo "::warning::The Wasm suite stopped while loading (attempt $attempt); running it again."
+          done
+          exit 124
 
       # The root steps already resolve and analyze example/; these name the
       # example as its own package, the way users build it.
