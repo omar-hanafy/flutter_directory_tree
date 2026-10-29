@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:directory_tree/directory_tree.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/src/controller/directory_loading.dart';
@@ -900,8 +901,13 @@ void main() {
       var activations = 0;
       final h = await pumpKeyboard(
         tester,
+        // The app's default shortcuts map Enter to ActivateIntent, and on
+        // the web to ButtonActivateIntent.
         ancestorActions: <Type, Action<Intent>>{
           ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) => activations++,
+          ),
+          ButtonActivateIntent: CallbackAction<ButtonActivateIntent>(
             onInvoke: (_) => activations++,
           ),
         },
@@ -1307,6 +1313,9 @@ void main() {
       FocusNode focus,
       TextEditingController field,
     ) async {
+      // On the web the browser moves the caret itself, which a widget test
+      // cannot observe; the inert tree is what the callers check there.
+      if (kIsWeb) return;
       field.selection = TextSelection.collapsed(offset: field.text.length);
       await tester.pump();
       await press(tester, LogicalKeyboardKey.arrowLeft);
