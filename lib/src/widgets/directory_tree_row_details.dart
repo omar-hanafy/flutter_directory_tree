@@ -101,10 +101,15 @@ final class DirectoryTreeRowDetails<T> {
   /// cursor.
   final bool isFocused;
 
-  /// Whether the tree view has keyboard focus.
+  /// Whether the tree view has keyboard focus: its own focus node (the
+  /// nearest [Focus] above the sliver, normally the tree's keyboard
+  /// handling) has the primary focus, so the tree's keys act.
   ///
-  /// When false, draw the selection with the inactive color and no focus
-  /// border, so the user can tell which part of the screen keys go to.
+  /// It is false while a widget inside a row, such as a rename field, has
+  /// the focus, and for a [Focus] above the sliver that only contains the
+  /// focused widget. When false, draw the selection with the inactive color
+  /// and no focus border, so the user can tell which part of the screen
+  /// keys go to.
   final bool hasFocus;
 
   /// Whether a mouse pointer is over the row; always false for touch.

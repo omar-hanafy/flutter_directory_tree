@@ -1,4 +1,4 @@
-import 'dart:ui' show CheckedState;
+import 'dart:ui' show CheckedState, Tristate;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -390,6 +390,92 @@ void main() {
       focusNode.unfocus();
       await tester.pumpAndSettle();
       expect(tester.getSemantics(rowOf(src)), isSemantics(isFocused: false));
+      semantics.dispose();
+    });
+
+    testWidgets('a text field inside a row keeps the focus to itself', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController()..focus(readme);
+      addTearDown(controller.dispose);
+      final treeNode = FocusNode();
+      addTearDown(treeNode.dispose);
+      final fieldNode = FocusNode();
+      addTearDown(fieldNode.dispose);
+      final text = TextEditingController(text: 'README.md');
+      addTearDown(text.dispose);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          focusNode: treeNode,
+          rowBuilder: (context, details) => details.row.id == readme
+              ? DirectoryTreeRow<int>(
+                  details: details,
+                  title: TextField(focusNode: fieldNode, controller: text),
+                )
+              : DirectoryTreeRow<int>(details: details),
+        ),
+      );
+      treeNode.requestFocus();
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(rowOf(readme)), isSemantics(isFocused: true));
+      expect(rowDecoration<int>(tester, readme).border, isNotNull);
+
+      // A rename field in the row takes the keys: the row is no longer the
+      // focused node, and the focus border goes away.
+      fieldNode.requestFocus();
+      await tester.pumpAndSettle();
+      expect(treeNode.hasFocus, isTrue);
+      expect(tester.getSemantics(rowOf(readme)), isSemantics(isFocused: false));
+      expect(rowDecoration<int>(tester, readme).border, isNull);
+      // No row competes with the field for the focus.
+      for (final id in [repo, lib, src, aDart, bDart, mainDart, readme]) {
+        expect(
+          tester
+              .getSemantics(rowOf(id))
+              .getSemanticsData()
+              .flagsCollection
+              .isFocused,
+          isNot(Tristate.isTrue),
+          reason: '$id',
+        );
+      }
+      semantics.dispose();
+    });
+
+    testWidgets('an unrelated Focus above a bare sliver is not the tree', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final controller = expandedController()..focus(readme);
+      addTearDown(controller.dispose);
+      final fieldNode = FocusNode();
+      addTearDown(fieldNode.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FocusTraversalGroup(
+              child: Column(
+                children: [
+                  TextField(focusNode: fieldNode),
+                  Expanded(
+                    child: CustomScrollView(
+                      slivers: [
+                        SliverDirectoryTree<int>(controller: controller),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      fieldNode.requestFocus();
+      await tester.pumpAndSettle();
+      expect(tester.getSemantics(rowOf(readme)), isSemantics(isFocused: false));
+      expect(rowDecoration<int>(tester, readme).border, isNull);
       semantics.dispose();
     });
 

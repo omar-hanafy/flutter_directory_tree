@@ -116,9 +116,12 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 ///   [loadingSemanticsLabel] while its children load and
 ///   [loadFailedSemanticsLabel] after the load failed;
 /// * a hint with the row's level from [levelSemanticsHint];
-/// * the keyboard focus: while the tree has keyboard focus, the row of
+/// * the keyboard focus: while the tree's own focus node (the nearest
+///   [Focus] above the sliver) has the primary focus, the row of
 ///   [DirectoryTreeController.focusedId] is the focused node, so screen
-///   readers on the web and on desktops follow the arrow keys.
+///   readers on the web and on desktops follow the arrow keys. While a
+///   widget inside a row, such as a rename field, has the focus, that
+///   widget is the only focused node.
 ///
 /// Its actions:
 ///
@@ -569,7 +572,10 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final snapshot = _Snapshot<T>(
       rows: _rows,
       focusedId: controller.focusedId,
-      hasFocus: Focus.maybeOf(context)?.hasFocus ?? false,
+      // The tree's keys act only while its own node has the primary focus:
+      // not while a text field in a row has it, and not for an unrelated
+      // Focus above a bare sliver.
+      hasFocus: Focus.maybeOf(context)?.hasPrimaryFocus ?? false,
       query: controller.parsedQuery,
       checkboxMode: widget.checkboxMode,
     );
