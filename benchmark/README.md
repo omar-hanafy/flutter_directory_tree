@@ -228,75 +228,35 @@ from the same starting states as v1's subject:
 | `toggle` | before each run re-expand the target when it is collapsed; run `controller.toggleExpansion(targetId)`, an incremental collapse (one splice of the target's rows, which the test checks) |
 | `filter` | before each run `controller.query = ''`; run `controller.query = workload.filterQuery` |
 | `select_range` | anchor and target are the ids of rows `length ~/ 4` and `length * 3 ~/ 4`; before each run `controller.select(anchor, focus: false)`; run `controller.extendSelection(target, focus: false)`; counts `selected: controller.selection.length` |
-| views | not available yet; see below |
+| views | `DirectoryTreeView<Never>(controller:, scrollController:, rowBuilder:)` under `DirectoryTreeTheme(data: DirectoryTreeThemeData(rowExtent: 28))`; each row is the default `DirectoryTreeRow` inside a `RowBuildProbe` |
 
 `focus: false` matches 1.0.0, whose controller has no keyboard focus.
 
-### Adding the v2 views
+### The v2 views
 
-The frame operations need `SliverDirectoryTree` (task V), which is not
-merged yet. Until then `V2Subject.unavailableReason` reports them, and every
-run records them as not available (see [Measurement](#measurement)). Once
-`lib/src/widgets/sliver_directory_tree.dart` is on the branch:
+The frame operations mount `DirectoryTreeView<Never>`, the widget an app
+uses: the sliver with its keyboard handling and scrollbar. The rows have
+1.0.0's 28 px height (`benchRowExtent`), so both versions show the same
+rows. 2.0.0's default extent depends on the platform density (28 px on
+macOS, 36 px in `flutter test`, whose default target is Android), which
+would make the frame operations compare different amounts of content.
+Rows are counted with `RowBuildProbe` (in `harness/lib/src/frames.dart`)
+rather than in the `rowBuilder` closure: 2.0.0 caches row widgets per id,
+so a remounted row may not call the builder again, but its probe still
+builds. `v2/test/v2_subject_test.dart` checks the frame records the way
+v1's test does: every record passes `WorkloadExpectations.check`, and
+`built_rows` is within 22 to 42 (28 px rows in the 600 px box plus the
+cache extent).
 
-1. In `v2/lib/v2_subject.dart`, delete `viewsUnavailable` and the
-   `unavailableReason` override, and build the view:
+Measure both versions in one session, so the columns share the machine's
+state:
 
-   ```dart
-   @override
-   Widget buildView({
-     required ScrollController scrollController,
-     required RowBuiltCallback onRowBuilt,
-   }) {
-     return DirectoryTreeTheme(
-       data: const DirectoryTreeThemeData(rowExtent: 28),
-       child: CustomScrollView(
-         controller: scrollController,
-         slivers: [
-           SliverDirectoryTree<Never>(
-             controller: controller,
-             rowBuilder: (context, details) => RowBuildProbe(
-               index: details.index,
-               onBuilt: onRowBuilt,
-               child: DirectoryTreeRow<Never>(details: details),
-             ),
-           ),
-         ],
-       ),
-     );
-   }
-   ```
+```sh
+dart run bin/run.dart --impls v1,v2
+```
 
-   When `DirectoryTreeView` (task A) lands, the view can become
-   `DirectoryTreeView<Never>(controller:, scrollController:, rowBuilder:)`
-   inside the same `DirectoryTreeTheme`.
-
-   The 28 px row extent is 1.0.0's row height, so both versions show the
-   same rows. 2.0.0's default depends on the platform density (28 px on
-   macOS, 36 px in `flutter test`, whose default target is Android), which
-   would make the frame operations compare different amounts of content.
-   Count rows with `RowBuildProbe` (in `harness/lib/src/frames.dart`)
-   rather than in the `rowBuilder` closure: 2.0.0 caches row widgets per
-   id, so a remounted row may not call the builder again, but its probe
-   still builds.
-
-2. In `v2/test/v2_subject_test.dart`, check the frame records the way v1's
-   test does instead of expecting them to be unavailable: every record
-   passes `WorkloadExpectations.check`, and `built_rows` is within 22 to 42
-   (28 px rows in the 600 px box plus the cache extent, as for v1).
-
-3. Gates in `benchmark/v2`: `dart format --output=none --set-exit-if-changed .`,
-   `flutter analyze --fatal-infos`, `flutter test`. Then, from
-   `benchmark/runner`, measure both versions in one session, so the columns
-   share the machine's state (the stored v1 baseline was measured while
-   other sessions were busy on the same machine):
-
-   ```sh
-   dart run bin/run.dart --impls v1,v2
-   ```
-
-   `RESULTS.md` then fills the v2 columns and the speedups (v1 / v2) for
-   both modes.
+`RESULTS.md` then fills the v2 columns and the speedups (v1 / v2) for both
+modes.
 
 ## Caveats
 

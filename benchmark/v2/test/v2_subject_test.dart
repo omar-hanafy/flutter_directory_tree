@@ -42,7 +42,6 @@ void main() {
           final operation = record['operation']! as String;
           expect(record['error'], isNull, reason: operation);
           expect(record['fingerprint'], workload.fingerprint);
-          if (_frameOperations.contains(operation)) continue;
           expect(expected.check(operation, record), isEmpty, reason: operation);
         }
         // 2.0.0 stores exactly the files and the folders.
@@ -50,13 +49,17 @@ void main() {
           byOperation['build']!['nodes'],
           workload.size + workload.folderCount,
         );
-        // Until SliverDirectoryTree is merged the views cannot be measured:
-        // their records give the reason instead of numbers, and they are
-        // not failures.
+        // The views build only the rows on screen, not the 10k+ rows: a
+        // 600 px viewport of 28 px rows shows 22 rows, and the default cache
+        // extent adds about 9 on each side.
         for (final operation in _frameOperations) {
           final record = byOperation[operation]!;
-          expect(record['unavailable'], viewsUnavailable, reason: operation);
-          expect(record, isNot(contains('median_ms')), reason: operation);
+          expect(record, isNot(contains('unavailable')), reason: operation);
+          expect(
+            record['built_rows'],
+            inInclusiveRange(22, 42),
+            reason: operation,
+          );
         }
         expect(tester.takeException(), isNull);
       },

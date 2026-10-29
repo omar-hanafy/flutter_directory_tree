@@ -8,10 +8,9 @@ import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 /// Creates the v2 subject.
 BenchSubject createV2Subject(Workload workload) => V2Subject(workload);
 
-/// Why the frame operations have no numbers yet (see
-/// [V2Subject.unavailableReason]).
-const String viewsUnavailable =
-    'needs SliverDirectoryTree, the 2.0.0 tree view, which is not merged yet';
+/// The row extent of the measured view: 1.0.0's row height, so both
+/// versions show the same rows in the benchmark viewport.
+const double benchRowExtent = 28;
 
 /// Measures the flutter_directory_tree 2.0.0 code in this repository through
 /// its public API, the way an application calls it.
@@ -23,7 +22,7 @@ const String viewsUnavailable =
 /// | `toggle` | `controller.toggleExpansion(targetId)` on the fully expanded tree: an incremental collapse that removes the target's block of rows. |
 /// | `filter` | `controller.query = 'legacy'`. |
 /// | `select_range` | `controller.extendSelection(targetId, focus: false)` after `select(anchorId, focus: false)`. |
-/// | views | Not available yet ([viewsUnavailable]); `benchmark/README.md` has the steps that add them. |
+/// | views | `DirectoryTreeView<Never>` (keyboard, scrollbar, and rows of the default `DirectoryTreeRow`) under a `DirectoryTreeTheme` pinned to [benchRowExtent]. |
 ///
 /// `focus: false` matches 1.0.0, whose controller has no keyboard focus.
 class V2Subject extends BenchSubject {
@@ -71,14 +70,6 @@ class V2Subject extends BenchSubject {
       ..expandAll()
       ..clearSelection();
   }
-
-  /// [viewsUnavailable] for the frame operations, so the runs measure the
-  /// controller and record those as not available instead of failing.
-  @override
-  String? unavailableReason(String operation) =>
-      operationNamed(operation).kind == OperationKind.frame
-      ? viewsUnavailable
-      : null;
 
   @override
   void setUp(String operation) {
@@ -173,12 +164,28 @@ class V2Subject extends BenchSubject {
     }
   }
 
-  /// Never called while [unavailableReason] reports the frame operations.
+  /// The 2.0.0 tree view an application would use, with every row counted
+  /// by a [RowBuildProbe].
+  ///
+  /// The probe wraps the default row inside the row builder. 2.0.0 caches
+  /// row widgets per id, so a remounted row may not call the builder again,
+  /// but its probe still builds.
   @override
   Widget buildView({
     required ScrollController scrollController,
     required RowBuiltCallback onRowBuilt,
-  }) => throw UnsupportedError(viewsUnavailable);
+  }) => DirectoryTreeTheme(
+    data: const DirectoryTreeThemeData(rowExtent: benchRowExtent),
+    child: DirectoryTreeView<Never>(
+      controller: controller,
+      scrollController: scrollController,
+      rowBuilder: (context, details) => RowBuildProbe(
+        index: details.index,
+        onBuilt: onRowBuilt,
+        child: DirectoryTreeRow<Never>(details: details),
+      ),
+    ),
+  );
 
   @override
   int get viewRowCount => controller.rows.length;
