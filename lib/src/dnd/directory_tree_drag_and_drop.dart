@@ -86,8 +86,10 @@ final class DirectoryTreeDragAndDrop<T> {
 
   // The callbacks take T as a parameter, so a public field would throw a
   // TypeError when read through a DirectoryTreeDragAndDrop<Object?>
-  // reference to a more specific instance. They stay private and are
-  // called from this library only.
+  // reference to a more specific instance. They stay private and are read
+  // only inside this class (through `this`, whose T is the real one); the
+  // scope and its drag session call them through the methods below, which
+  // take nodes typed for any T.
   final ValueChanged<DirectoryTreeDropDetails<T>> _onDrop;
   final bool Function(List<TreeNode<T>> nodes)? _canDrag;
   final bool Function(DirectoryTreeDropDetails<T> details)? _canDrop;
@@ -104,6 +106,71 @@ final class DirectoryTreeDragAndDrop<T> {
   /// stay expanded after the drag. `null` turns automatic expansion off, and
   /// [Duration.zero] expands as soon as the pointer reaches the row.
   final Duration? autoExpandDelay;
+
+  /// Whether this configuration can take the nodes of [controller]: true
+  /// when the controller's node type is `T` or a subtype of it.
+  ///
+  /// A `DirectoryTreeDragAndDrop<Object?>` takes the nodes of every
+  /// controller; a `DirectoryTreeDragAndDrop<String>` cannot take the nodes
+  /// of a `DirectoryTreeController<Object?>`, whose nodes are not
+  /// `TreeNode<String>`s.
+  bool _canHandleNodesOf(DirectoryTreeController<Object?> controller) =>
+      controller is DirectoryTreeController<T>;
+
+  /// [nodes] as a list of `TreeNode<T>`; [nodes] itself when it is one.
+  /// O(nodes) otherwise. The nodes must come from a controller that
+  /// [_canHandleNodesOf] accepts.
+  List<TreeNode<T>> _typed(List<TreeNode<Object?>> nodes) =>
+      nodes is List<TreeNode<T>>
+      ? nodes
+      : List<TreeNode<T>>.unmodifiable(nodes);
+
+  /// Whether `canDrag` lets a drag of [nodes] start.
+  bool _allowsDrag(List<TreeNode<Object?>> nodes) {
+    final canDrag = _canDrag;
+    return canDrag == null || canDrag(_typed(nodes));
+  }
+
+  /// Whether a custom `canDrop` decides about targets.
+  bool get _hasCanDrop => _canDrop != null;
+
+  /// The drop of [nodes] on [target] when `canDrop` accepts it (always
+  /// without one), else `null`. The checks that do not depend on the
+  /// callback (a dragged target, the common parent) are the caller's.
+  DirectoryTreeDropDetails<T>? _acceptedDrop(
+    List<TreeNode<Object?>> nodes,
+    DirectoryNode<Object?> target,
+  ) {
+    final details = DirectoryTreeDropDetails<T>(
+      nodes: _typed(nodes),
+      target: target as DirectoryNode<T>,
+    );
+    final canDrop = _canDrop;
+    return canDrop == null || canDrop(details) ? details : null;
+  }
+
+  /// Calls `onDrop` with [details], typed again for `T` when another
+  /// configuration built them.
+  void _drop(DirectoryTreeDropDetails<Object?> details) {
+    _onDrop(
+      details is DirectoryTreeDropDetails<T>
+          ? details
+          : DirectoryTreeDropDetails<T>(
+              nodes: _typed(details.nodes),
+              target: details.target as DirectoryNode<T>,
+            ),
+    );
+  }
+
+  /// Whether a custom `feedbackBuilder` builds the drag feedback.
+  bool get _hasFeedbackBuilder => _feedbackBuilder != null;
+
+  /// The custom feedback for [nodes], or `null` without a
+  /// `feedbackBuilder`.
+  Widget? _buildFeedback(BuildContext context, List<TreeNode<Object?>> nodes) {
+    final builder = _feedbackBuilder;
+    return builder == null ? null : builder(context, _typed(nodes));
+  }
 
   /// Whether [other] has the same callbacks (compared with `==`, so the same
   /// function objects) and the same [autoExpandDelay].
@@ -242,6 +309,17 @@ class DirectoryTreeDragAndDropScope<T> extends StatefulWidget {
   ///
   /// A new value takes effect at once, also for a drag in progress: the
   /// current target is checked again with the new `canDrop`.
+  ///
+  /// Its type argument may be narrower than this widget's `T` (a
+  /// `DirectoryTreeDragAndDrop<FileInfo>` in a
+  /// `DirectoryTreeDragAndDropScope<Object?>`), as long as [controller]'s
+  /// nodes have that type (a `DirectoryTreeController<FileInfo>`): the
+  /// callbacks then receive nodes of their own type. A configuration whose
+  /// type the controller's nodes do not have (a
+  /// `DirectoryTreeDragAndDrop<FileInfo>` for a
+  /// `DirectoryTreeController<Object?>`) can never receive its nodes;
+  /// building the scope then throws a [FlutterError] in debug mode, and in
+  /// release mode nothing can be dragged.
   final DirectoryTreeDragAndDrop<T> dragAndDrop;
 
   /// The subtree that holds the rows, usually a [CustomScrollView].
@@ -388,8 +466,30 @@ class _DirectoryTreeDragAndDropScopeState<T>
   }
 
   @override
-  Widget build(BuildContext context) =>
-      _DragAndDropScopeMarker(scope: this, child: widget.child);
+  Widget build(BuildContext context) {
+    assert(() {
+      if (!widget.dragAndDrop._canHandleNodesOf(widget.controller)) {
+        throw FlutterError.fromParts(<DiagnosticsNode>[
+          ErrorSummary(
+            'DirectoryTreeDragAndDropScope got a configuration for other '
+            'nodes than its controller holds.',
+          ),
+          ErrorDescription(
+            'The dragAndDrop argument is a '
+            '${widget.dragAndDrop.runtimeType}, but the controller is a '
+            '${widget.controller.runtimeType}, whose nodes the '
+            "configuration's callbacks cannot receive.",
+          ),
+          ErrorHint(
+            'Give the configuration the type argument of the controller '
+            '(or a wider one, such as Object?).',
+          ),
+        ]);
+      }
+      return true;
+    }(), 'the configuration cannot take the controller\'s nodes');
+    return _DragAndDropScopeMarker(scope: this, child: widget.child);
+  }
 
   /// Whether a mouse, trackpad, or stylus press that moved past the slop
   /// may start a drag; remembers what it computed for [_startSession].
@@ -435,9 +535,12 @@ class _DirectoryTreeDragAndDropScopeState<T>
   }
 
   /// The nodes a drag from the row [rowId] moves, and whether `canDrag`
-  /// allows it; `null` when the row's node is gone.
+  /// allows it; `null` when the row's node is gone or the configuration
+  /// cannot take the controller's nodes.
   _PreparedDrag<T>? _prepare(NodeId rowId) {
     final controller = widget.controller;
+    final config = widget.dragAndDrop;
+    if (!config._canHandleNodesOf(controller)) return null;
     final tree = controller.tree;
     final node = tree[rowId];
     if (node == null) return null;
@@ -445,8 +548,7 @@ class _DirectoryTreeDragAndDropScopeState<T>
         ? _outermostNodes(tree, controller.selectedNodes)
         : List<TreeNode<T>>.unmodifiable(<TreeNode<T>>[node]);
     if (nodes.isEmpty) return null;
-    final canDrag = widget.dragAndDrop._canDrag;
-    return (nodes: nodes, draggable: canDrag == null || canDrag(nodes));
+    return (nodes: nodes, draggable: config._allowsDrag(nodes));
   }
 
   /// Ends [session] without a drop: removes its feedback, timers, and

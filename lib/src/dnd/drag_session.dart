@@ -159,12 +159,13 @@ final class _DragSession<T> implements Drag {
       if (callback != null && row != null) callback(row, press.position);
       return;
     }
-    final drop = draggable ? _dropAt(_position) : null;
-    final onDrop = _config._onDrop;
+    // One configuration decides the drop and receives it.
+    final config = _config;
+    final drop = draggable ? _dropAt(config, _position) : null;
     // Clean up first: the handler usually replaces the tree, and it may
     // throw.
     scope._finishSession(this);
-    if (drop != null) onDrop(drop);
+    if (drop != null) config._drop(drop);
   }
 
   @override
@@ -241,17 +242,17 @@ final class _DragSession<T> implements Drag {
     return false;
   }
 
-  /// The drop of the dragged nodes on [target], or `null` when the target
+  /// The drop of the dragged nodes on [target] as [config] builds it (typed
+  /// for the configuration's own node type), or `null` when the target
   /// refuses them.
-  DirectoryTreeDropDetails<T>? _acceptedDrop(
+  DirectoryTreeDropDetails<Object?>? _acceptedDrop(
+    DirectoryTreeDragAndDrop<Object?> config,
     DirectoryTree<T> tree,
     DirectoryNode<T> target,
   ) {
     if (_nodes.isEmpty || _isDraggedOrInside(tree, target.id)) return null;
-    final canDrop = _config._canDrop;
-    if (canDrop == null && target.id == _commonParent) return null;
-    final details = DirectoryTreeDropDetails<T>(nodes: _nodes, target: target);
-    return canDrop == null || canDrop(details) ? details : null;
+    if (!config._hasCanDrop && target.id == _commonParent) return null;
+    return config._acceptedDrop(_nodes, target);
   }
 
   // -------------------------------------------------------------------
@@ -320,7 +321,8 @@ final class _DragSession<T> implements Drag {
       _targetId = targetId;
       final target = targetId == null ? null : tree[targetId];
       _targetAccepted =
-          target is DirectoryNode<T> && _acceptedDrop(tree, target) != null;
+          target is DirectoryNode<T> &&
+          _acceptedDrop(_config, tree, target) != null;
     }
     scope._dropTarget.value = _targetAccepted ? _targetId : null;
     _updateAutoExpand(tree, node);
@@ -366,14 +368,18 @@ final class _DragSession<T> implements Drag {
       ..ensureVisualUpdate();
   }
 
-  /// The accepted drop at [position], checked afresh, or `null`.
-  DirectoryTreeDropDetails<T>? _dropAt(Offset position) {
+  /// The drop at [position] that [config] accepts, checked afresh, or
+  /// `null`.
+  DirectoryTreeDropDetails<Object?>? _dropAt(
+    DirectoryTreeDragAndDrop<Object?> config,
+    Offset position,
+  ) {
     final tree = controller.tree;
     final rowId = _rowIdAt(position);
     final targetId = _targetIdOf(rowId == null ? null : tree[rowId]);
     final target = targetId == null ? null : tree[targetId];
     if (target is! DirectoryNode<T>) return null;
-    return _acceptedDrop(tree, target);
+    return _acceptedDrop(config, tree, target);
   }
 
   // -------------------------------------------------------------------
@@ -437,10 +443,10 @@ final class _DragSession<T> implements Drag {
     final overlay = Overlay.maybeOf(context);
     if (overlay == null) return;
     final nodes = _nodes;
-    final builder = _config._feedbackBuilder;
-    final feedback = builder == null
-        ? _DefaultDragFeedback(node: _primaryNode(), count: nodes.length)
-        : Builder(builder: (context) => builder(context, nodes));
+    final config = _config;
+    final feedback = config._hasFeedbackBuilder
+        ? Builder(builder: (context) => config._buildFeedback(context, nodes)!)
+        : _DefaultDragFeedback(node: _primaryNode(), count: nodes.length);
     _overlay = overlay;
     _feedback = InheritedTheme.captureAll(
       context,
