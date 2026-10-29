@@ -338,7 +338,15 @@ Future<bool> typeText(WidgetTester tester, String text) async {
       _ => LogicalKeyboardKey.findKeyByKeyId(lower.codeUnitAt(0))!,
     };
     final shift = character != lower;
-    handled &= await press(tester, key, shift: shift, character: character);
+    // Not `handled &= await press(...)`: dart2wasm (Dart 3.13) emits
+    // invalid Wasm for a compound assignment whose right side awaits.
+    final pressed = await press(
+      tester,
+      key,
+      shift: shift,
+      character: character,
+    );
+    handled = handled && pressed;
   }
   return handled;
 }
