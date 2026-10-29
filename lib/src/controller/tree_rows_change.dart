@@ -50,11 +50,15 @@ final class TreeRowsChange {
        assert(inserted >= 0, 'inserted must not be negative'),
        isReset = false;
 
-  /// The rows object this change replaced, or `null` for the first rows of
-  /// a controller.
+  /// The rows object this change replaced, or `null` when it is unknown.
   ///
-  /// Compared by identity in [operator ==]; it is the value that
-  /// [DirectoryTreeController.rows] returned right before the change.
+  /// Compared by identity in [operator ==]. While the controller's listeners
+  /// run for a change, it is the value that [DirectoryTreeController.rows]
+  /// returned right before the change. It is `null` for the first rows of a
+  /// controller, and after the listeners ran for a change that replaced the
+  /// tree, so the old tree can be collected (see
+  /// [DirectoryTreeController.lastRowsChange]); treat a change whose
+  /// `previous` is not the rows you built as a reset.
   final TreeRows<Object?>? previous;
 
   /// Whether this change says nothing about which rows stayed: rebuild the

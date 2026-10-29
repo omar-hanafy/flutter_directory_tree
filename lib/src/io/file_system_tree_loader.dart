@@ -6,7 +6,7 @@ import 'package:flutter/foundation.dart' show immutable;
 // Imported only so documentation references to the controller resolve.
 import 'package:flutter_directory_tree/src/controller/directory_loading.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
-import 'package:flutter_directory_tree/src/io/windows_ordinary_path.dart';
+import 'package:flutter_directory_tree/src/io/host_paths.dart';
 
 /// Reads directory trees from the local file system one level at a time,
 /// for tree views that load folders when they are opened.
@@ -128,11 +128,12 @@ final class FileSystemTreeLoader {
   /// whose later loads resolve against the current directory of that
   /// moment. A relative path that climbs above its start, such as `..` or
   /// `../project`, is read through its absolute form instead, as
-  /// [DirectoryScanner.scanTree] does. A drive letter with a colon starts
-  /// an absolute tree path on every platform, so pass `C:\` for the root
-  /// of a drive (on Windows, `dart:io` reads `C:` alone as the current
-  /// directory of that drive, while the tree would call it `C:/`), and
-  /// `./c:` for a relative directory named `c:`.
+  /// [DirectoryScanner.scanTree] does. On Linux and macOS, also as the
+  /// scanner does, a leading `//` reads as `/`, and a relative path whose
+  /// first segment looks like a drive (`c:`, `c:/x`) reads as `./c:`, so
+  /// the tree stays relative. On Windows, pass `C:\` for the root of a
+  /// drive: `dart:io` reads `C:` alone as the current directory of that
+  /// drive, while the tree would call it `C:/`.
   ///
   /// Entry paths are parsed by [TreeOptions.paths] with
   /// [PathPolicy.backslashIsSeparator] set to the host rule
@@ -274,13 +275,7 @@ final class FileSystemTreeLoader {
       onError: failures.add,
     ).scan(path);
     for (final failure in failures) {
-      // On Windows a link past MAX_PATH is resolved again through its
-      // extended-length form, and the error of that retry carries it.
-      var failed = failure.path;
-      if (failed != null && Platform.isWindows) {
-        failed = windowsOrdinaryPath(failed);
-      }
-      if (links == null || !links.contains(failed)) throw failure;
+      if (links == null || !_isLinkFailure(failure, links)) throw failure;
     }
     // The scanner lists the directory itself too, as the only entry with
     // exactly the scanned path; every child's path is longer.
@@ -288,6 +283,27 @@ final class FileSystemTreeLoader {
       for (final entry in scanned)
         if (entry.path != path) _placed(entry, base),
     ];
+  }
+
+  /// Whether [failure] is the scanner reporting one of the [links] that
+  /// [skip] saw (a link whose target cannot be resolved) rather than a
+  /// listing failure.
+  ///
+  /// The error carries the link's path as listed, except on Windows for a
+  /// link past `MAX_PATH`: the scanner resolves it again through the
+  /// extended-length form of its absolute path and reports that form.
+  /// O(links) for such an error, O(1) otherwise.
+  static bool _isLinkFailure(FileSystemException failure, Set<String> links) {
+    final failed = failure.path;
+    if (failed == null) return false;
+    if (links.contains(failed)) return true;
+    if (!Platform.isWindows || !failed.startsWith(r'\\?\')) return false;
+    for (final link in links) {
+      if (windowsExtendedLengthPath(Directory(link).absolute.path) == failed) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /// Lists the directories among [children] of the directory at [rootPath],
@@ -373,17 +389,21 @@ final class FileSystemTreeLoader {
         : TreeEntry<FileSystemEntity>.file(path, data: entry.data);
   }
 
-  /// The path [loadTree] reads for [path]: [path] itself when [policy]
-  /// parses it, and its absolute form when only that parses (a relative
-  /// path that climbs above its start), as `DirectoryScanner.scanTree`
-  /// does.
+  /// The path [loadTree] reads for [path], as `DirectoryScanner.scanTree`
+  /// chooses it: [path] itself, respelled off Windows by
+  /// [posixTreeSpelling], when [policy] parses it, and its absolute form
+  /// when only that parses (a relative path that climbs above its start).
   ///
   /// An empty path stays empty so the scanner reports it as missing rather
   /// than reading the current directory, and a path that is invalid in both
   /// forms is kept so the scanner reports the caller's spelling.
   static String _readPath(String path, PathPolicy policy) {
-    if (path.isEmpty || policy.tryParse(path) != null) return path;
-    final absolute = Directory(path).absolute.path;
+    if (path.isEmpty) return path;
+    String host(String path) =>
+        Platform.isWindows ? path : posixTreeSpelling(path);
+    final spelled = host(path);
+    if (policy.tryParse(spelled) != null) return spelled;
+    final absolute = host(Directory(path).absolute.path);
     return policy.tryParse(absolute) == null ? path : absolute;
   }
 

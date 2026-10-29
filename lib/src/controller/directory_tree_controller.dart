@@ -212,7 +212,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// * [selection] and [checks] drop the ids the new tree does not contain.
   ///   A checked leaf (a file or an empty directory) that is now a
   ///   directory with children becomes checked as a whole: all of its
-  ///   leaves are checked.
+  ///   leaves are checked. With [compactFolders], a selected directory
+  ///   that now continues a compacted chain is replaced by the chain's
+  ///   deepest directory, the id of the row that shows it.
   /// * Both expansion states drop ids that are not directories of the new
   ///   tree.
   /// * The focus stays on its node when the node still exists, otherwise it
@@ -366,9 +368,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// unless the effective filter hides it; this happens even when it is
   /// already expanded, which retries a failed load.
   ///
-  /// Does nothing for files, unknown ids, and top-level directories while
-  /// [showRoots] is false. [lastRowsChange] becomes a splice after the row
-  /// (a reset when the directory has no row). O(log rows + new rows).
+  /// Does nothing for files and unknown ids. A top-level directory while
+  /// [showRoots] is false always counts as expanded, so only the load rule
+  /// applies: its failed load starts again. [lastRowsChange] becomes a
+  /// splice after the row (a reset when the directory has no row).
+  /// O(log rows + new rows).
   void expand(NodeId id) {
     final node = _tree[id];
     if (node is! DirectoryNode<T>) return;
@@ -1002,7 +1006,8 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///
   /// Such a row expands and collapses as its deepest directory. Setting it
   /// recomputes [rows] (a reset, O(rows), O(n) with a filter); a focused
-  /// directory that joins a compacted row focuses that row. Turning it off
+  /// or selected directory that joins a compacted row focuses or selects
+  /// that row (its deepest directory) instead. Turning it off
   /// shows the directories of every visible compacted row as rows of their
   /// own, as VS Code does: the intermediate directories expand, and the
   /// deepest one keeps its state. They expand in both states; while
@@ -1039,6 +1044,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       _restructured(previous, effective),
       TreeRowsChange.reset(previous: previous),
     );
+    _selectChainEnds();
     _maintainFocus();
     _commit();
   }
@@ -1081,6 +1087,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       _restructured(previous, effective),
       TreeRowsChange.reset(previous: previous),
     );
+    _selectChainEnds();
     _maintainFocus();
     _loadHiddenRoots();
     _commit();
@@ -1553,12 +1560,15 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// [previous] (rows of another tree or structure).
   ///
   /// While filtering with [revealMatches], the ancestors of matches whose
-  /// state no row of [previous] showed (new directories, directories that
-  /// continued a compacted chain, hidden roots) expand, so the matches stay
-  /// visible. A directory that had its own row keeps its state from
-  /// [effective], which may be a folder the user collapsed during the
-  /// search. O(n) with a filter (one flatten, plus a pass over the nodes
-  /// when matches were revealed), O(rows) without.
+  /// state [previous] never consulted expand, so the matches stay visible:
+  /// new directories, directories that continued a compacted chain or were
+  /// hidden roots, and directories the previous filter hid (they held no
+  /// match). Every directory whose state [previous] consulted keeps its
+  /// state from [effective], with or without a row of its own, so a folder
+  /// the user collapsed during the search stays collapsed, also inside a
+  /// collapsed parent. O(n) with a filter (one flatten, plus up to two
+  /// passes over the nodes when matches were revealed, which never call
+  /// the filter), O(rows) without.
   TreeRows<T> _restructured(TreeRows<T> previous, ExpansionState effective) {
     if (_effectiveFilter == null || !_revealMatches) {
       return _flatten(effective, expandMatches: false);
@@ -1566,15 +1576,27 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     final revealed = _flatten(effective, expandMatches: true);
     final opened = revealed.expansion;
     if (identical(opened, effective)) return revealed;
+    final previousTree = previous.tree;
+    // Every node the previous filter let through has a row here; built on
+    // the first need, from the match results of previous, without calling
+    // the filter.
+    TreeRows<T>? passed;
     List<NodeId>? kept;
     for (final node in _tree.nodes) {
       if (node is! DirectoryNode<T>) continue;
       final id = node.id;
-      if (opened.isExpanded(id) &&
-          !effective.isExpanded(id) &&
-          previous.rowOf(id)?.id == id) {
-        (kept ??= <NodeId>[]).add(id);
+      if (!opened.isExpanded(id) || effective.isExpanded(id)) continue;
+      final before = previousTree[id];
+      if (before is! DirectoryNode<T>) continue;
+      if (!previous.showRoots && before.isRoot) continue;
+      if (previous.compactFolders &&
+          before.children.length == 1 &&
+          previousTree[before.children.first] is DirectoryNode<T>) {
+        continue;
       }
+      passed ??= previous.withExpansion(const ExpansionState.expanded());
+      if (passed.indexOfNode(id) < 0) continue;
+      (kept ??= <NodeId>[]).add(id);
     }
     return kept == null
         ? revealed
@@ -1638,9 +1660,45 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     return largest > 0 ? largest : 10;
   }
 
-  /// The node a selection command on [id] selects: the id of the row that
-  /// shows [id] (the deepest directory of a compacted row), else [id].
-  NodeId _selectionTarget(NodeId id) => _rows.rowOf(id)?.id ?? id;
+  /// The node a selection command on [id] selects: for a directory, the
+  /// deepest directory of the compacted chain it belongs to (the id of the
+  /// row that shows or would show it), else [id]. O(chain length).
+  NodeId _selectionTarget(NodeId id) {
+    final node = _tree[id];
+    return node is DirectoryNode<T> ? _chainEnd(node).id : id;
+  }
+
+  /// Moves selected directories that now continue a compacted chain, and
+  /// the anchor, to the chain's deepest directory, as the selection
+  /// commands store them, after the structure or the tree changed. An id
+  /// whose chain end the `selectable` predicate rejects stays as it is.
+  /// O(selection size x chain length).
+  void _selectChainEnds() {
+    final selection = _selection;
+    if (!_compactFolders || selection.isEmpty) return;
+    NodeId moved(NodeId id) {
+      final target = _selectionTarget(id);
+      return target == id || !isSelectable(target) ? id : target;
+    }
+
+    var changed = false;
+    final selected = <NodeId>[];
+    for (final id in selection.selected) {
+      final target = moved(id);
+      if (target != id) changed = true;
+      selected.add(target);
+    }
+    final anchor = selection.anchor;
+    final movedAnchor = anchor == null ? null : moved(anchor);
+    if (!changed && movedAnchor == anchor) return;
+    _setSelection(
+      SelectionState(
+        mode: selection.mode,
+        selected: selected,
+        anchor: movedAnchor,
+      ),
+    );
+  }
 
   bool _isRowSelectable(TreeRow<T> row) {
     final selectable = _selectable;
@@ -1774,6 +1832,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
           : _spliceBetween(previousRows, rows),
     );
     _focusedId = focused;
+    _selectChainEnds();
     _maintainFocus();
   }
 

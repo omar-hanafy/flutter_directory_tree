@@ -336,7 +336,7 @@ to the controller itself.
 | `ContextMenuDelegate` | `DirectoryTreeView(contextMenuBuilder: ...)`, or `onRowSecondaryTap` for another menu system | See [Menus from other design systems](#menus-from-other-design-systems). |
 | `ContextMenuDelegate.actionsFor(node)` | The builder's return value | An empty list opens no menu, as in 1.x. |
 | `ContextMenuDelegate.wrapWithMenu(...)` | Removed | The view wires the menu itself. |
-| `MaterialContextMenuDelegate(provider)` | `contextMenuBuilder: (context, details) => [...]` | 2.0.0 uses `MenuAnchor` instead of `showMenu`, selects the row first if it was not selected, passes the whole selection in `details.nodes` when the row was selected, opens from Shift+F10 and the context menu key, and returns focus to the tree when it closes. |
+| `MaterialContextMenuDelegate(provider)` | `contextMenuBuilder: (context, details) => [...]` | 2.0.0 uses `MenuAnchor` instead of `showMenu`, selects the row first if it was not selected (unless `selectOnTap` is false), passes the whole selection in `details.nodes` when the row was selected, opens from Shift+F10 and the context menu key, and returns focus to the tree when it closes. |
 
 ### Icons
 
@@ -609,7 +609,9 @@ final view = DirectoryTreeView(
 
 `ContextMenuDelegate.wrapWithMenu` could show any menu. In 2.0.0, leave out
 `contextMenuBuilder` and handle `onRowSecondaryTap`. The view selects the
-row first, and Shift+F10 calls it at the focused row's bottom-left corner:
+row first (with the default `selectOnTap: true`), and Shift+F10 calls it at
+the focused row's bottom start corner (bottom-left, or bottom-right in a
+right-to-left layout):
 
 ```dart
 Widget treeWithPopupMenu(

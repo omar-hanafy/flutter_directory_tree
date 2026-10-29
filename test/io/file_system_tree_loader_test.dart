@@ -370,6 +370,49 @@ void main() {
         );
       });
 
+      test('a leading // reads as / off Windows, as a scan does', () async {
+        if (Platform.isWindows) {
+          markTestSkipped('// starts a UNC path on Windows');
+          return;
+        }
+        final absolute = base.absolute.path;
+        final tree = await const FileSystemTreeLoader().loadTree('/$absolute');
+        expect(tree.rootNodes.single.path, TreePath.parse(absolute));
+        expect(describeTree(tree), [
+          'd:.:Directory',
+          'd:a:Directory',
+          'd:empty:Directory',
+          'f:top.txt:File',
+        ]);
+      });
+
+      test(
+        'a drive-like first segment stays a relative name off Windows',
+        () async {
+          if (Platform.isWindows) {
+            markTestSkipped('C: names a drive on Windows');
+            return;
+          }
+          create(base, ['c:/inner.txt']);
+          final saved = Directory.current;
+          Directory.current = base;
+          addTearDown(() => Directory.current = saved);
+          const loader = FileSystemTreeLoader();
+          final tree = await loader.loadTree('c:');
+          final root = directoryAt(tree, './c:');
+          expect(tree.rootNodes.single, same(root));
+          expect(root.path.isAbsolute, isFalse);
+          expect(describeTree(tree), ['d:.:Directory', 'f:inner.txt:File']);
+          expect(
+            describeEntries(
+              root.path.toString(),
+              await loader.loadChildren(root),
+            ),
+            ['f:inner.txt:File'],
+          );
+        },
+      );
+
       test(
         'a relative path climbing above its start is read as absolute',
         () async {

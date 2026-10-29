@@ -127,6 +127,61 @@ void main() {
       expectConsistentRows(controller);
     });
 
+    test('a new tree keeps folders collapsed inside a collapsed parent', () {
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        query: 'dart',
+      );
+      controller
+        ..collapse(src)
+        ..collapse(lib)
+        ..updateTree((builder) => builder.addFile('/repo/test/x.dart'))
+        ..expand(lib);
+      expect(controller.isExpanded(src), isFalse);
+      expect(labelsOf(controller.rows), [
+        'repo',
+        'lib',
+        'src',
+        'main.dart',
+        'test',
+        'main_test.dart',
+        'x.dart',
+      ]);
+      expectConsistentRows(controller);
+    });
+
+    test('collapseSubtree and collapseAll survive tree swaps', () {
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        query: 'dart',
+      )..collapseSubtree(lib);
+      controller
+        ..tree = controller.tree.rebuild((builder) {})
+        ..expand(lib);
+      expect(controller.isExpanded(src), isFalse);
+      controller
+        ..collapseAll()
+        ..updateTree((builder) => builder.addFile('/repo/lib/src/c.dart'))
+        ..expand(repo)
+        ..expand(lib);
+      expect(controller.isExpanded(src), isFalse);
+      expect(controller.isExpanded(testDir), isFalse);
+      expectConsistentRows(controller);
+    });
+
+    test('a match in a folder that held none opens it', () {
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        query: 'c.dart',
+      );
+      expect(controller.rows, isEmpty);
+      controller.updateTree(
+        (builder) => builder.addFile('/repo/lib/src/c.dart'),
+      );
+      expect(labelsOf(controller.rows), ['repo', 'lib', 'src', 'c.dart']);
+      expectConsistentRows(controller);
+    });
+
     test('without revealMatches the effective state is kept as it is', () {
       final controller = DirectoryTreeController<int>(
         tree: matchTree(),
@@ -221,6 +276,46 @@ void main() {
       expect(controller.selection.anchor, otherTxt);
       expect(controller.reveal(b, select: true), isTrue);
       expect(controller.selection.selected, {c});
+    });
+
+    test('a selected folder that joins a chain selects the chain end', () {
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/a/b/c/file.txt'),
+          TreeEntry.file('/r/other.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded([r]),
+      )..select(a);
+      expect(controller.selection.selected, {a});
+      controller.compactFolders = true;
+      expect(controller.selection.selected, {c});
+      expect(controller.selection.anchor, c);
+      expect(controller.isSelected(controller.rows[1].id), isTrue);
+    });
+
+    test('a tree swap that puts a selected folder in a chain', () {
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build(const [
+          TreeEntry.file('/r/a/b/c/file.txt'),
+          TreeEntry.file('/r/a/x.txt'),
+          TreeEntry.file('/r/other.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded([r]),
+        compactFolders: true,
+      )..select(a);
+      expect(controller.selection.selected, {a});
+      controller.updateTree((builder) => builder.remove('/r/a/x.txt'));
+      expect(labelsOf(controller.rows), ['r', 'a/b/c', 'other.txt']);
+      expect(controller.selection.selected, {c});
+    });
+
+    test('a chain member selected without a row selects the chain end', () {
+      final controller = compactedController(
+        expansion: const ExpansionState.collapsed(),
+      )..select(a);
+      expect(controller.selection.selected, {c});
+      expect(controller.reveal(a), isTrue);
+      expect(controller.isSelected(controller.focusedId!), isTrue);
     });
 
     test('toggleExpansion without a row flips the chain end', () {
