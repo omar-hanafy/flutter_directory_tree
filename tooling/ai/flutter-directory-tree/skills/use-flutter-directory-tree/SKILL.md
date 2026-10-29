@@ -253,7 +253,8 @@ then the listing replaces its contents in one change, and expansion,
 selection, checks, and focus stay with every node that still exists. A
 failed reload changes nothing below it (status `failed`; expanding
 retries). A new tree keeps unfinished refreshes: such folders are listed
-on their next expand, and an open one starts again. A compacted row shows
+on their next expand, and an open one (also one a search hides) starts
+again at once. A compacted row shows
 the load status of every folder in it. The API reference has the full
 reload rules.
 

@@ -604,9 +604,11 @@ void main() {
         'contents when it fails', () async {
       var listings = 0;
       var failRoot = false;
+      final relistA = Completer<void>();
       final controller = DirectoryTreeController<Object?>(
         tree: DirectoryTree.fromPaths(['/root/']),
-        // One level per listing; the second listing of a adds c.txt.
+        // One level per listing; the second listing of a waits for relistA
+        // and adds c.txt.
         loadChildren: (directory) async {
           switch (directory.path.toString()) {
             case '/root':
@@ -614,6 +616,7 @@ void main() {
               return [TreeEntry.directory('/root/a')];
             case '/root/a':
               listings++;
+              if (listings > 1) await relistA.future;
               return [
                 TreeEntry.file('/root/a/b.txt'),
                 if (listings > 1) TreeEntry.file('/root/a/c.txt'),
@@ -642,6 +645,7 @@ void main() {
       expect(labels(), ['root', 'a', 'b.txt']); // a listed empty, kept
       expect(controller.isExpanded(a), isTrue);
       expect(controller.loadStatusOf(a), DirectoryLoadStatus.loading);
+      relistA.complete();
       await controller.loadChildren(a);
       expect(labels(), ['root', 'a', 'b.txt', 'c.txt']);
       expect(controller.isSelected(b), isTrue);
@@ -687,8 +691,10 @@ void main() {
       await pumpEventQueue();
       expect(labels(), ['root', 'a']);
 
-      // An updateTree during a reload of an open folder starts it again.
-      unawaited(controller.reloadChildren(root));
+      // An updateTree during a reload of an open folder starts it again,
+      // and the first reload's future completes with the restarted one.
+      var reloaded = false;
+      unawaited(controller.reloadChildren(root).then((_) => reloaded = true));
       await pumpEventQueue();
       expect(pending['/root'], hasLength(2));
       controller.updateTree((builder) => builder.addFile('/root/x.txt'));
@@ -696,11 +702,14 @@ void main() {
       expect(pending['/root'], hasLength(3));
       expect(controller.loadStatusOf(root), DirectoryLoadStatus.loading);
       pending['/root']![1].complete(const []); // the discarded listing
+      await pumpEventQueue();
+      expect(reloaded, isFalse);
       pending['/root']!.last.complete([
         TreeEntry.directory('/root/a'),
         TreeEntry.file('/root/y.txt'),
       ]);
       await pumpEventQueue();
+      expect(reloaded, isTrue);
       expect(controller.loadStatusOf(root), DirectoryLoadStatus.loaded);
       expect(labels(), ['root', 'a', 'y.txt']);
 
@@ -720,6 +729,70 @@ void main() {
       expect(labels(), ['root', 'a', 'b.txt', 'y.txt']);
       final skill = _normalize(File('$_useSkill/SKILL.md').readAsStringSync());
       expect(skill, contains('A new tree keeps unfinished refreshes'));
+      expect(
+        _normalize(
+          File('$_useSkill/references/api-quick-reference.md')
+              .readAsStringSync(),
+        ),
+        contains('completes with the load that starts again in its place'),
+      );
+    });
+
+    test('while filtering, expand loads a folder without a row only when '
+        'the filter would show it', () async {
+      final loaded = <String>[];
+      final controller = DirectoryTreeController<Object?>(
+        tree: DirectoryTree.fromPaths(['/r/apple/', '/r/box/', '/r/x.txt']),
+        query: 'apple',
+        revealMatches: false, // r stays collapsed: its folders have no rows
+        loadChildren: (directory) async {
+          loaded.add(directory.name);
+          return const [];
+        },
+      );
+      addTearDown(controller.dispose);
+      final apple = controller.tree.idOf('/r/apple')!;
+      final box = controller.tree.idOf('/r/box')!;
+      expect(controller.rows.indexOfNode(apple), -1);
+      controller
+        ..expand(apple)
+        ..expand(box);
+      await pumpEventQueue();
+      expect(loaded, ['apple']);
+      final reference = _normalize(
+        File('$_useSkill/references/api-quick-reference.md').readAsStringSync(),
+      );
+      expect(reference, contains('a match inside a collapsed folder loads'));
+    });
+
+    test('a folder that stops continuing a compacted chain takes the state '
+        'of its deepest folder', () {
+      for (final open in [true, false]) {
+        final tree = DirectoryTree.fromPaths(['/r/lib/src/a.dart', '/r/x.txt']);
+        final lib = tree.idOf('/r/lib')!;
+        final src = tree.idOf('/r/lib/src')!;
+        final controller = DirectoryTreeController<Object?>(
+          tree: tree,
+          // lib's own state is the opposite of the row's (src's).
+          expansion: ExpansionState.withExpanded([
+            tree.roots.single,
+            if (open) src else lib,
+          ]),
+          compactFolders: true,
+        );
+        addTearDown(controller.dispose);
+        expect(controller.rows.rowOf(lib)!.label, 'lib/src');
+        controller.updateTree((builder) => builder.addFile('/r/lib/b.dart'));
+        expect(controller.isExpanded(lib), open, reason: 'open: $open');
+        expect(controller.rows.rowOf(lib)!.label, 'lib');
+      }
+      final reference = _normalize(
+        File('$_useSkill/references/api-quick-reference.md').readAsStringSync(),
+      );
+      expect(
+        reference,
+        contains('takes the state of the chain\'s deepest folder'),
+      );
     });
 
     testWidgets('a compacted row shows the load of a folder above its node', (

@@ -95,8 +95,10 @@ void watchRows(DirectoryTreeController<Object?> controller) {
 - `expand(id)` starts a load when the folder has no children and is
   `notLoaded` or `failed`, or when it has children that wait to be listed
   again; it also retries a failed load of an already open folder. In a
-  compacted row it loads the outermost folder of the row that needs it, and
-  no load starts while the filter hides the row.
+  compacted row it loads the outermost folder of the row that needs it. No
+  load starts while the filter hides the folder; while filtering, a folder
+  without a row loads when the filter would show it once its ancestors
+  open, so a match inside a collapsed folder loads.
 - `reloadChildren(id)`: the folder keeps its rows (status `loading`), and
   the loads and statuses below it stay, until its listing arrives. Then
   the loads still running below are discarded, the statuses below start
@@ -107,15 +109,26 @@ void watchRows(DirectoryTreeController<Object?> controller) {
 - A subfolder that the listing returns without contents but that had
   contents (a loader that lists one level) keeps them and is listed again:
   at once when open, even while the filter hides it (so new matches in it
-  show), otherwise on its next expand.
+  show), otherwise on its next expand. Every listing likewise loads the
+  open folders below it that need a load, also while the filter hides
+  them.
 - A failed reload keeps everything (status `failed`); `expand` or
   `loadChildren` retries.
 - A new tree (the `tree` setter or `updateTree`) restarts the load
   statuses and discards running loads. A folder whose load was discarded
-  loads again on its next expand, at once when open. A folder with contents
-  that waits for a new listing (its reload was discarded or failed, or a
-  reload above it kept its contents) stays marked and is listed on its next
-  expand.
+  loads again at once when it is open in either expansion state, also
+  while the filter hides it, else on its next expand; in a compacted row
+  only the outermost folder that needs a load starts again. A folder with
+  contents that waits for a new listing (its reload was discarded or
+  failed, or a reload above it kept its contents) stays marked and is
+  listed on its next expand.
+- The future of a discarded load (from `loadChildren` or
+  `reloadChildren`) completes with the load that starts again in its
+  place, by a new tree or a listing above it, else when its loader
+  returns. It never completes with an error.
+- With `compactFolders`, a folder that stops continuing a compacted chain
+  (for example its only child folder gets a sibling) takes the state of
+  the chain's deepest folder, open or closed, shown or not.
 - A compacted row's `loadStatus` is `loading` while any folder above its
   node in the row loads and `failed` when one of those loads failed.
 
