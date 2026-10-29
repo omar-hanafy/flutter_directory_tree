@@ -24,7 +24,8 @@ the theme parameters `indent` and `rowHeight` and the re-exported
 - Lazy loading with `loadChildren`, `loadStatusOf`, `loadChildren(id)`,
   and `reloadChildren(id)`, and `FileSystemTreeLoader` in the new
   `package:flutter_directory_tree/io.dart` library, which also re-exports
-  `DirectoryScanner`.
+  `DirectoryScanner`. A reload reopens the folders that were open below
+  it as their contents come back.
 - `SliverDirectoryTree`, a virtualized sliver with fixed-height rows that
   rebuilds only the rows whose state changed, keeps the first visible row
   in place when the rows change, and animates the rows a folder reveals.
@@ -33,10 +34,13 @@ the theme parameters `indent` and `rowHeight` and the re-exported
   hover.
 - `DirectoryTreeKeyboard`, `DirectoryTreeShortcuts.defaults`, and the
   tree intents: platform-specific bindings, right-to-left layouts, and
-  type-ahead find.
+  type-ahead find (also with Option and AltGr). Tabbing into a tree
+  focuses its first selected row, or its first row.
+  `selectionFollowsFocus: false` moves the focus without selecting.
 - Context menus with `DirectoryTreeContextMenu` and
   `DirectoryTreeMenuDetails`, opened by secondary click, long press,
-  Shift+F10, and the context menu key.
+  Shift+F10, and the context menu key. `selectOnOpen` decides whether
+  opening the menu selects the row.
 - Drag and drop with `DirectoryTreeDragAndDrop`,
   `DirectoryTreeDragAndDropScope`, and `DirectoryTreeDropDetails`.
 - `DirectoryTreeSearchField`, `DirectoryTreePicker`, and
@@ -46,8 +50,10 @@ the theme parameters `indent` and `rowHeight` and the re-exported
   `DirectoryTreeIndentGuides`, and `DirectoryTreeIconSet` for custom rows
   and icons.
 - `compactFolders` and `showRoots` on the controller.
-- Row semantics: label, level hint (`levelSemanticsHint`), and selected,
-  expanded, and checked states; `semanticLabel` for the whole tree.
+- Row semantics: label, level hint (`levelSemanticsHint`), selected,
+  expanded, and checked states, the keyboard focus, loading and failed
+  states, and expand, collapse, retry, and Open (`onActivate`) actions,
+  with localizable labels; `semanticLabel` for the whole tree.
 - Support for the web, compiled to JavaScript and to WebAssembly.
 - `lib/fix_data.yaml` with the `dart fix` renames.
 
@@ -70,7 +76,8 @@ the theme parameters `indent` and `rowHeight` and the re-exported
   caller's controller.
 - `DirectoryTreeThemeData` is a `ThemeExtension` with nullable fields and
   Material 3 defaults. `indent` is now `indentWidth`, `rowHeight` is
-  `rowExtent` (default 36, adjusted by the visual density),
+  `rowExtent` (default 36, adjusted by the visual density, at least 48
+  on touch platforms, and taller with large text),
   `selectionColor` is `selectedColor` plus `inactiveSelectedColor`,
   `indentGuides` is `guideStyle`, `roundedCorners` is `rowBorderRadius`,
   and `focusColor` is `focusedBorderColor`.

@@ -637,7 +637,10 @@ Material defaults, then the extension, then the nearest
 `DirectoryTreeTheme`. A few fields to know:
 
 - `rowExtent` is the height of every row: 36 by default, adjusted by the
-  visual density (28 for `VisualDensity.compact`).
+  visual density (28 for `VisualDensity.compact`, the desktop default),
+  at least 48 where Material pads tap targets (Android, iOS, Fuchsia), and
+  taller when the text scale makes a label line taller. A `rowExtent` you
+  set is used as given.
 - `selectedColor` is the selection background while the tree has keyboard
   focus, and `inactiveSelectedColor` while it does not. Set both to the
   same color for one selection color.
@@ -773,11 +776,17 @@ each row label at most once per key press.
 
 Each row is one semantics node. It carries the row label, the selected
 state, the expanded state of folders, the checked or mixed state when the
-view shows checkboxes, a tap action, a long-press action when the view has
-a context menu or `onRowSecondaryTap`, and a hint with the row's level
-(`Level 2` for a row at depth 1). The arrow is a button labeled "Expand"
-or "Collapse" (from `MaterialLocalizations`), and the checkbox keeps its
-Material semantics, so assistive technologies can use both directly.
+view shows checkboxes, a tap action, expand and collapse actions, a
+long-press action when the view has a context menu or
+`onRowSecondaryTap`, and a hint with the row's level (`Level 2` for a row
+at depth 1). With `onActivate`, rows also offer an "Open" action, so touch
+screen reader users, who have no double-click and no Enter key, can
+activate them. A folder that is loading or failed to load says so, and a
+failed one offers an action that retries the load.
+
+While the tree has the keyboard focus, the focused row is the focused
+semantics node, so screen readers follow the arrow keys. Rows grow with
+the text scale, and on touch platforms they are at least 48 pixels tall.
 
 ```dart
 final view = DirectoryTreeView(
@@ -788,7 +797,8 @@ final view = DirectoryTreeView(
 ```
 
 `semanticLabel` names the whole tree, and `levelSemanticsHint` translates
-the level hint. A custom row should not repeat the label in its own
+the level hint; `activateSemanticsLabel`, `loadingSemanticsLabel`, and
+`loadFailedSemanticsLabel` translate the other English defaults. A custom row should not repeat the label in its own
 semantics; wrap such text in `ExcludeSemantics`, as the custom row above
 does.
 
