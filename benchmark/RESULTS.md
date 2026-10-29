@@ -16,54 +16,54 @@ Median per operation in milliseconds. Speedup = v1 median / v2 median.
 
 | operation | shape | size | v1 median (ms) | v2 median (ms) | speedup |
 |---|---|---:|---:|---:|---:|
-| build | deep | 10,000 | 256 |  |  |
-| expand_all | deep | 10,000 | 1.99 |  |  |
-| toggle | deep | 10,000 | 1.30 |  |  |
-| filter | deep | 10,000 | 4.62 |  |  |
-| select_range | deep | 10,000 | 0.263 |  |  |
-| first_frame | deep | 10,000 | 2.71 |  |  |
-| jump_middle | deep | 10,000 | 3.25 |  |  |
-| jump_end | deep | 10,000 | 2.54 |  |  |
-| build | deep | 100,000 | 2,621 |  |  |
-| expand_all | deep | 100,000 | 38.49 |  |  |
-| toggle | deep | 100,000 | 33.48 |  |  |
-| filter | deep | 100,000 | 61.98 |  |  |
-| select_range | deep | 100,000 | 5.93 |  |  |
-| first_frame | deep | 100,000 | 5.73 |  |  |
-| jump_middle | deep | 100,000 | 2.67 |  |  |
-| jump_end | deep | 100,000 | 2.09 |  |  |
-| build | deep | 1,000,000 | 30,646 |  |  |
-| expand_all | deep | 1,000,000 | 1,019 |  |  |
-| toggle | deep | 1,000,000 | 741 |  |  |
-| filter | deep | 1,000,000 | 906 |  |  |
-| select_range | deep | 1,000,000 | 183 |  |  |
-| first_frame | deep | 1,000,000 | 46.66 |  |  |
-| jump_middle | deep | 1,000,000 | 6.02 |  |  |
-| jump_end | deep | 1,000,000 | 3.00 |  |  |
-| build | wide | 10,000 | 108 |  |  |
-| expand_all | wide | 10,000 | 1.44 |  |  |
-| toggle | wide | 10,000 | 0.722 |  |  |
-| filter | wide | 10,000 | 4.64 |  |  |
-| select_range | wide | 10,000 | 0.248 |  |  |
-| first_frame | wide | 10,000 | 2.26 |  |  |
-| jump_middle | wide | 10,000 | 3.36 |  |  |
-| jump_end | wide | 10,000 | 2.54 |  |  |
-| build | wide | 100,000 | 1,890 |  |  |
-| expand_all | wide | 100,000 | 34.20 |  |  |
-| toggle | wide | 100,000 | 18.68 |  |  |
-| filter | wide | 100,000 | 68.59 |  |  |
-| select_range | wide | 100,000 | 8.79 |  |  |
-| first_frame | wide | 100,000 | 3.55 |  |  |
-| jump_middle | wide | 100,000 | 2.91 |  |  |
-| jump_end | wide | 100,000 | 2.30 |  |  |
-| build | wide | 1,000,000 | > 60,000 (timeout) |  |  |
-| expand_all | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| toggle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| filter | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| select_range | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| first_frame | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_middle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_end | wide | 1,000,000 | timeout (blocked by build) |  |  |
+| build | deep | 10,000 | 241 | 23.01 | 10.5x |
+| expand_all | deep | 10,000 | 1.77 | 0.351 | 5.03x |
+| toggle | deep | 10,000 | 1.30 | 0.103 | 12.7x |
+| filter | deep | 10,000 | 4.27 | 0.658 | 6.49x |
+| select_range | deep | 10,000 | 0.256 | 0.370 | 0.69x |
+| first_frame | deep | 10,000 | 2.13 | 2.11 | 1.01x |
+| jump_middle | deep | 10,000 | 2.74 | 2.51 | 1.09x |
+| jump_end | deep | 10,000 | 2.40 | 2.10 | 1.14x |
+| build | deep | 100,000 | 2,485 | 218 | 11.4x |
+| expand_all | deep | 100,000 | 29.26 | 4.38 | 6.67x |
+| toggle | deep | 100,000 | 31.15 | 1.25 | 24.9x |
+| filter | deep | 100,000 | 58.79 | 8.29 | 7.09x |
+| select_range | deep | 100,000 | 4.22 | 4.39 | 0.96x |
+| first_frame | deep | 100,000 | 3.90 | 1.98 | 1.97x |
+| jump_middle | deep | 100,000 | 2.41 | 4.31 | 0.56x |
+| jump_end | deep | 100,000 | 2.06 | 2.11 | 0.98x |
+| build | deep | 1,000,000 | 28,293 | 3,040 | 9.31x |
+| expand_all | deep | 1,000,000 | 684 | 114 | 5.98x |
+| toggle | deep | 1,000,000 | 397 | 15.72 | 25.2x |
+| filter | deep | 1,000,000 | 728 | 109 | 6.69x |
+| select_range | deep | 1,000,000 | 101 | 84.78 | 1.19x |
+| first_frame | deep | 1,000,000 | 24.62 | 5.51 | 4.47x |
+| jump_middle | deep | 1,000,000 | 2.62 | 4.53 | 0.58x |
+| jump_end | deep | 1,000,000 | 1.94 | 4.72 | 0.41x |
+| build | wide | 10,000 | 97.75 | 13.32 | 7.34x |
+| expand_all | wide | 10,000 | 1.42 | 0.215 | 6.59x |
+| toggle | wide | 10,000 | 0.705 | 0.058 | 12.2x |
+| filter | wide | 10,000 | 3.94 | 0.549 | 7.17x |
+| select_range | wide | 10,000 | 0.477 | 0.328 | 1.45x |
+| first_frame | wide | 10,000 | 2.00 | 1.90 | 1.05x |
+| jump_middle | wide | 10,000 | 2.22 | 2.85 | 0.78x |
+| jump_end | wide | 10,000 | 2.34 | 2.76 | 0.85x |
+| build | wide | 100,000 | 1,667 | 193 | 8.64x |
+| expand_all | wide | 100,000 | 25.43 | 4.94 | 5.15x |
+| toggle | wide | 100,000 | 15.73 | 0.994 | 15.8x |
+| filter | wide | 100,000 | 53.50 | 6.02 | 8.89x |
+| select_range | wide | 100,000 | 4.02 | 3.97 | 1.01x |
+| first_frame | wide | 100,000 | 2.95 | 1.71 | 1.73x |
+| jump_middle | wide | 100,000 | 2.54 | 2.35 | 1.08x |
+| jump_end | wide | 100,000 | 1.99 | 2.06 | 0.96x |
+| build | wide | 1,000,000 | > 60,000 (timeout) | 2,454 | > 24.4x |
+| expand_all | wide | 1,000,000 | timeout (blocked by build) | 112 |  |
+| toggle | wide | 1,000,000 | timeout (blocked by build) | 8.65 |  |
+| filter | wide | 1,000,000 | timeout (blocked by build) | 142 |  |
+| select_range | wide | 1,000,000 | timeout (blocked by build) | 72.35 |  |
+| first_frame | wide | 1,000,000 | timeout (blocked by build) | 4.18 |  |
+| jump_middle | wide | 1,000,000 | timeout (blocked by build) | 3.02 |  |
+| jump_end | wide | 1,000,000 | timeout (blocked by build) | 2.13 |  |
 
 ### Fastest run (aot)
 
@@ -71,54 +71,54 @@ Minimum over the timed runs, less sensitive to garbage collection pauses on the 
 
 | operation | shape | size | v1 min (ms) | v2 min (ms) | speedup |
 |---|---|---:|---:|---:|---:|
-| build | deep | 10,000 | 253 |  |  |
-| expand_all | deep | 10,000 | 1.94 |  |  |
-| toggle | deep | 10,000 | 1.28 |  |  |
-| filter | deep | 10,000 | 4.25 |  |  |
-| select_range | deep | 10,000 | 0.258 |  |  |
-| first_frame | deep | 10,000 | 2.55 |  |  |
-| jump_middle | deep | 10,000 | 3.09 |  |  |
-| jump_end | deep | 10,000 | 2.29 |  |  |
-| build | deep | 100,000 | 2,567 |  |  |
-| expand_all | deep | 100,000 | 26.40 |  |  |
-| toggle | deep | 100,000 | 26.62 |  |  |
-| filter | deep | 100,000 | 54.75 |  |  |
-| select_range | deep | 100,000 | 3.37 |  |  |
-| first_frame | deep | 100,000 | 4.24 |  |  |
-| jump_middle | deep | 100,000 | 2.23 |  |  |
-| jump_end | deep | 100,000 | 1.98 |  |  |
-| build | deep | 1,000,000 | 30,377 |  |  |
-| expand_all | deep | 1,000,000 | 899 |  |  |
-| toggle | deep | 1,000,000 | 727 |  |  |
-| filter | deep | 1,000,000 | 884 |  |  |
-| select_range | deep | 1,000,000 | 163 |  |  |
-| first_frame | deep | 1,000,000 | 30.84 |  |  |
-| jump_middle | deep | 1,000,000 | 3.41 |  |  |
-| jump_end | deep | 1,000,000 | 2.56 |  |  |
-| build | wide | 10,000 | 104 |  |  |
-| expand_all | wide | 10,000 | 1.42 |  |  |
-| toggle | wide | 10,000 | 0.719 |  |  |
-| filter | wide | 10,000 | 3.88 |  |  |
-| select_range | wide | 10,000 | 0.248 |  |  |
-| first_frame | wide | 10,000 | 2.08 |  |  |
-| jump_middle | wide | 10,000 | 3.23 |  |  |
-| jump_end | wide | 10,000 | 2.18 |  |  |
-| build | wide | 100,000 | 1,812 |  |  |
-| expand_all | wide | 100,000 | 21.09 |  |  |
-| toggle | wide | 100,000 | 16.75 |  |  |
-| filter | wide | 100,000 | 58.48 |  |  |
-| select_range | wide | 100,000 | 3.66 |  |  |
-| first_frame | wide | 100,000 | 3.35 |  |  |
-| jump_middle | wide | 100,000 | 2.63 |  |  |
-| jump_end | wide | 100,000 | 2.24 |  |  |
-| build | wide | 1,000,000 | > 60,000 (timeout) |  |  |
-| expand_all | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| toggle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| filter | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| select_range | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| first_frame | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_middle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_end | wide | 1,000,000 | timeout (blocked by build) |  |  |
+| build | deep | 10,000 | 236 | 15.63 | 15.1x |
+| expand_all | deep | 10,000 | 1.76 | 0.346 | 5.09x |
+| toggle | deep | 10,000 | 1.24 | 0.102 | 12.2x |
+| filter | deep | 10,000 | 4.01 | 0.651 | 6.15x |
+| select_range | deep | 10,000 | 0.254 | 0.366 | 0.69x |
+| first_frame | deep | 10,000 | 1.94 | 1.97 | 0.99x |
+| jump_middle | deep | 10,000 | 2.65 | 2.44 | 1.09x |
+| jump_end | deep | 10,000 | 2.29 | 2.02 | 1.14x |
+| build | deep | 100,000 | 2,466 | 202 | 12.2x |
+| expand_all | deep | 100,000 | 25.75 | 3.92 | 6.57x |
+| toggle | deep | 100,000 | 18.14 | 1.12 | 16.2x |
+| filter | deep | 100,000 | 52.50 | 7.15 | 7.34x |
+| select_range | deep | 100,000 | 3.31 | 4.13 | 0.80x |
+| first_frame | deep | 100,000 | 3.40 | 1.82 | 1.87x |
+| jump_middle | deep | 100,000 | 2.36 | 2.62 | 0.90x |
+| jump_end | deep | 100,000 | 1.89 | 1.98 | 0.95x |
+| build | deep | 1,000,000 | 28,233 | 2,918 | 9.68x |
+| expand_all | deep | 1,000,000 | 606 | 80.96 | 7.49x |
+| toggle | deep | 1,000,000 | 385 | 14.80 | 26.0x |
+| filter | deep | 1,000,000 | 713 | 92.80 | 7.68x |
+| select_range | deep | 1,000,000 | 99.46 | 84.39 | 1.18x |
+| first_frame | deep | 1,000,000 | 22.86 | 4.93 | 4.64x |
+| jump_middle | deep | 1,000,000 | 2.42 | 2.66 | 0.91x |
+| jump_end | deep | 1,000,000 | 1.85 | 4.09 | 0.45x |
+| build | wide | 10,000 | 93.45 | 12.49 | 7.48x |
+| expand_all | wide | 10,000 | 1.35 | 0.210 | 6.43x |
+| toggle | wide | 10,000 | 0.694 | 0.058 | 12.0x |
+| filter | wide | 10,000 | 3.59 | 0.521 | 6.89x |
+| select_range | wide | 10,000 | 0.242 | 0.318 | 0.76x |
+| first_frame | wide | 10,000 | 1.83 | 1.84 | 1.00x |
+| jump_middle | wide | 10,000 | 2.10 | 2.66 | 0.79x |
+| jump_end | wide | 10,000 | 2.18 | 2.44 | 0.90x |
+| build | wide | 100,000 | 1,659 | 189 | 8.80x |
+| expand_all | wide | 100,000 | 19.92 | 2.71 | 7.35x |
+| toggle | wide | 100,000 | 14.58 | 0.972 | 15.0x |
+| filter | wide | 100,000 | 53.02 | 5.57 | 9.52x |
+| select_range | wide | 100,000 | 3.10 | 3.93 | 0.79x |
+| first_frame | wide | 100,000 | 2.73 | 1.66 | 1.64x |
+| jump_middle | wide | 100,000 | 2.25 | 2.30 | 0.98x |
+| jump_end | wide | 100,000 | 1.90 | 1.93 | 0.98x |
+| build | wide | 1,000,000 | > 60,000 (timeout) | 2,409 | > 24.9x |
+| expand_all | wide | 1,000,000 | timeout (blocked by build) | 70.17 |  |
+| toggle | wide | 1,000,000 | timeout (blocked by build) | 8.46 |  |
+| filter | wide | 1,000,000 | timeout (blocked by build) | 139 |  |
+| select_range | wide | 1,000,000 | timeout (blocked by build) | 71.31 |  |
+| first_frame | wide | 1,000,000 | timeout (blocked by build) | 3.88 |  |
+| jump_middle | wide | 1,000,000 | timeout (blocked by build) | 2.51 |  |
+| jump_end | wide | 1,000,000 | timeout (blocked by build) | 1.99 |  |
 
 ## JIT: flutter test (debug mode)
 
@@ -126,54 +126,54 @@ Median per operation in milliseconds. Speedup = v1 median / v2 median.
 
 | operation | shape | size | v1 median (ms) | v2 median (ms) | speedup |
 |---|---|---:|---:|---:|---:|
-| build | deep | 10,000 | 249 |  |  |
-| expand_all | deep | 10,000 | 2.65 |  |  |
-| toggle | deep | 10,000 | 1.80 |  |  |
-| filter | deep | 10,000 | 6.32 |  |  |
-| select_range | deep | 10,000 | 0.861 |  |  |
-| first_frame | deep | 10,000 | 29.59 |  |  |
-| jump_middle | deep | 10,000 | 71.33 |  |  |
-| jump_end | deep | 10,000 | 28.16 |  |  |
-| build | deep | 100,000 | 2,608 |  |  |
-| expand_all | deep | 100,000 | 61.97 |  |  |
-| toggle | deep | 100,000 | 45.63 |  |  |
-| filter | deep | 100,000 | 97.43 |  |  |
-| select_range | deep | 100,000 | 5.48 |  |  |
-| first_frame | deep | 100,000 | 36.97 |  |  |
-| jump_middle | deep | 100,000 | 23.80 |  |  |
-| jump_end | deep | 100,000 | 15.55 |  |  |
-| build | deep | 1,000,000 | 35,639 |  |  |
-| expand_all | deep | 1,000,000 | 932 |  |  |
-| toggle | deep | 1,000,000 | 619 |  |  |
-| filter | deep | 1,000,000 | 953 |  |  |
-| select_range | deep | 1,000,000 | 129 |  |  |
-| first_frame | deep | 1,000,000 | 55.99 |  |  |
-| jump_middle | deep | 1,000,000 | 27.28 |  |  |
-| jump_end | deep | 1,000,000 | 21.18 |  |  |
-| build | wide | 10,000 | 114 |  |  |
-| expand_all | wide | 10,000 | 2.08 |  |  |
-| toggle | wide | 10,000 | 1.05 |  |  |
-| filter | wide | 10,000 | 4.99 |  |  |
-| select_range | wide | 10,000 | 0.491 |  |  |
-| first_frame | wide | 10,000 | 21.72 |  |  |
-| jump_middle | wide | 10,000 | 20.73 |  |  |
-| jump_end | wide | 10,000 | 12.90 |  |  |
-| build | wide | 100,000 | 1,759 |  |  |
-| expand_all | wide | 100,000 | 52.90 |  |  |
-| toggle | wide | 100,000 | 35.02 |  |  |
-| filter | wide | 100,000 | 65.38 |  |  |
-| select_range | wide | 100,000 | 5.81 |  |  |
-| first_frame | wide | 100,000 | 22.98 |  |  |
-| jump_middle | wide | 100,000 | 23.92 |  |  |
-| jump_end | wide | 100,000 | 13.87 |  |  |
-| build | wide | 1,000,000 | > 60,000 (timeout) |  |  |
-| expand_all | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| toggle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| filter | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| select_range | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| first_frame | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_middle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_end | wide | 1,000,000 | timeout (blocked by build) |  |  |
+| build | deep | 10,000 | 233 | 23.74 | 9.82x |
+| expand_all | deep | 10,000 | 2.46 | 0.514 | 4.78x |
+| toggle | deep | 10,000 | 1.50 | 0.203 | 7.41x |
+| filter | deep | 10,000 | 4.65 | 1.71 | 2.72x |
+| select_range | deep | 10,000 | 0.438 | 0.803 | 0.55x |
+| first_frame | deep | 10,000 | 25.65 | 27.94 | 0.92x |
+| jump_middle | deep | 10,000 | 23.31 | 24.43 | 0.95x |
+| jump_end | deep | 10,000 | 12.54 | 15.82 | 0.79x |
+| build | deep | 100,000 | 2,464 | 278 | 8.86x |
+| expand_all | deep | 100,000 | 39.29 | 9.28 | 4.23x |
+| toggle | deep | 100,000 | 31.27 | 0.630 | 49.6x |
+| filter | deep | 100,000 | 70.61 | 7.73 | 9.13x |
+| select_range | deep | 100,000 | 7.66 | 4.69 | 1.63x |
+| first_frame | deep | 100,000 | 25.37 | 21.28 | 1.19x |
+| jump_middle | deep | 100,000 | 18.73 | 20.25 | 0.93x |
+| jump_end | deep | 100,000 | 12.45 | 10.58 | 1.18x |
+| build | deep | 1,000,000 | 26,810 | 2,775 | 9.66x |
+| expand_all | deep | 1,000,000 | 694 | 111 | 6.26x |
+| toggle | deep | 1,000,000 | 445 | 13.28 | 33.5x |
+| filter | deep | 1,000,000 | 786 | 99.89 | 7.87x |
+| select_range | deep | 1,000,000 | 105 | 87.50 | 1.20x |
+| first_frame | deep | 1,000,000 | 40.50 | 23.17 | 1.75x |
+| jump_middle | deep | 1,000,000 | 19.16 | 21.38 | 0.90x |
+| jump_end | deep | 1,000,000 | 12.20 | 13.12 | 0.93x |
+| build | wide | 10,000 | 93.36 | 16.56 | 5.64x |
+| expand_all | wide | 10,000 | 1.46 | 0.461 | 3.18x |
+| toggle | wide | 10,000 | 0.726 | 0.160 | 4.54x |
+| filter | wide | 10,000 | 3.90 | 1.30 | 3.01x |
+| select_range | wide | 10,000 | 0.415 | 0.718 | 0.58x |
+| first_frame | wide | 10,000 | 17.75 | 19.58 | 0.91x |
+| jump_middle | wide | 10,000 | 15.56 | 21.13 | 0.74x |
+| jump_end | wide | 10,000 | 9.60 | 11.98 | 0.80x |
+| build | wide | 100,000 | 1,552 | 244 | 6.36x |
+| expand_all | wide | 100,000 | 30.09 | 9.24 | 3.26x |
+| toggle | wide | 100,000 | 22.35 | 0.642 | 34.8x |
+| filter | wide | 100,000 | 49.98 | 8.16 | 6.12x |
+| select_range | wide | 100,000 | 3.17 | 5.73 | 0.55x |
+| first_frame | wide | 100,000 | 19.97 | 19.81 | 1.01x |
+| jump_middle | wide | 100,000 | 18.98 | 18.64 | 1.02x |
+| jump_end | wide | 100,000 | 10.79 | 10.84 | 1.00x |
+| build | wide | 1,000,000 | 54,324 | 2,687 | 20.2x |
+| expand_all | wide | 1,000,000 | 574 | 91.70 | 6.26x |
+| toggle | wide | 1,000,000 | 432 | 8.18 | 52.8x |
+| filter | wide | 1,000,000 | 664 | 149 | 4.46x |
+| select_range | wide | 1,000,000 | 70.57 | 89.25 | 0.79x |
+| first_frame | wide | 1,000,000 | 35.24 | 20.48 | 1.72x |
+| jump_middle | wide | 1,000,000 | 20.58 | 17.45 | 1.18x |
+| jump_end | wide | 1,000,000 | 12.06 | 12.73 | 0.95x |
 
 ### Fastest run (jit)
 
@@ -181,54 +181,54 @@ Minimum over the timed runs, less sensitive to garbage collection pauses on the 
 
 | operation | shape | size | v1 min (ms) | v2 min (ms) | speedup |
 |---|---|---:|---:|---:|---:|
-| build | deep | 10,000 | 237 |  |  |
-| expand_all | deep | 10,000 | 2.38 |  |  |
-| toggle | deep | 10,000 | 1.37 |  |  |
-| filter | deep | 10,000 | 5.45 |  |  |
-| select_range | deep | 10,000 | 0.427 |  |  |
-| first_frame | deep | 10,000 | 27.11 |  |  |
-| jump_middle | deep | 10,000 | 46.88 |  |  |
-| jump_end | deep | 10,000 | 17.22 |  |  |
-| build | deep | 100,000 | 2,509 |  |  |
-| expand_all | deep | 100,000 | 47.90 |  |  |
-| toggle | deep | 100,000 | 42.71 |  |  |
-| filter | deep | 100,000 | 67.50 |  |  |
-| select_range | deep | 100,000 | 5.20 |  |  |
-| first_frame | deep | 100,000 | 30.75 |  |  |
-| jump_middle | deep | 100,000 | 20.27 |  |  |
-| jump_end | deep | 100,000 | 12.21 |  |  |
-| build | deep | 1,000,000 | 29,675 |  |  |
-| expand_all | deep | 1,000,000 | 843 |  |  |
-| toggle | deep | 1,000,000 | 477 |  |  |
-| filter | deep | 1,000,000 | 877 |  |  |
-| select_range | deep | 1,000,000 | 126 |  |  |
-| first_frame | deep | 1,000,000 | 50.64 |  |  |
-| jump_middle | deep | 1,000,000 | 20.65 |  |  |
-| jump_end | deep | 1,000,000 | 16.05 |  |  |
-| build | wide | 10,000 | 99.78 |  |  |
-| expand_all | wide | 10,000 | 1.57 |  |  |
-| toggle | wide | 10,000 | 1.03 |  |  |
-| filter | wide | 10,000 | 4.22 |  |  |
-| select_range | wide | 10,000 | 0.375 |  |  |
-| first_frame | wide | 10,000 | 18.83 |  |  |
-| jump_middle | wide | 10,000 | 17.03 |  |  |
-| jump_end | wide | 10,000 | 9.80 |  |  |
-| build | wide | 100,000 | 1,700 |  |  |
-| expand_all | wide | 100,000 | 37.52 |  |  |
-| toggle | wide | 100,000 | 26.65 |  |  |
-| filter | wide | 100,000 | 58.42 |  |  |
-| select_range | wide | 100,000 | 4.84 |  |  |
-| first_frame | wide | 100,000 | 19.53 |  |  |
-| jump_middle | wide | 100,000 | 18.40 |  |  |
-| jump_end | wide | 100,000 | 11.55 |  |  |
-| build | wide | 1,000,000 | > 60,000 (timeout) |  |  |
-| expand_all | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| toggle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| filter | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| select_range | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| first_frame | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_middle | wide | 1,000,000 | timeout (blocked by build) |  |  |
-| jump_end | wide | 1,000,000 | timeout (blocked by build) |  |  |
+| build | deep | 10,000 | 227 | 21.68 | 10.5x |
+| expand_all | deep | 10,000 | 1.99 | 0.420 | 4.73x |
+| toggle | deep | 10,000 | 1.27 | 0.046 | 27.7x |
+| filter | deep | 10,000 | 4.46 | 0.652 | 6.84x |
+| select_range | deep | 10,000 | 0.290 | 0.497 | 0.58x |
+| first_frame | deep | 10,000 | 20.09 | 23.50 | 0.85x |
+| jump_middle | deep | 10,000 | 17.70 | 20.95 | 0.84x |
+| jump_end | deep | 10,000 | 11.75 | 13.60 | 0.86x |
+| build | deep | 100,000 | 2,395 | 259 | 9.25x |
+| expand_all | deep | 100,000 | 29.15 | 3.87 | 7.54x |
+| toggle | deep | 100,000 | 25.68 | 0.610 | 42.1x |
+| filter | deep | 100,000 | 59.40 | 7.34 | 8.09x |
+| select_range | deep | 100,000 | 5.87 | 4.15 | 1.41x |
+| first_frame | deep | 100,000 | 21.08 | 18.62 | 1.13x |
+| jump_middle | deep | 100,000 | 16.35 | 15.87 | 1.03x |
+| jump_end | deep | 100,000 | 11.57 | 10.05 | 1.15x |
+| build | deep | 1,000,000 | 26,646 | 2,657 | 10.0x |
+| expand_all | deep | 1,000,000 | 678 | 78.39 | 8.65x |
+| toggle | deep | 1,000,000 | 376 | 11.62 | 32.4x |
+| filter | deep | 1,000,000 | 704 | 96.31 | 7.31x |
+| select_range | deep | 1,000,000 | 102 | 85.11 | 1.19x |
+| first_frame | deep | 1,000,000 | 38.10 | 19.91 | 1.91x |
+| jump_middle | deep | 1,000,000 | 17.20 | 17.47 | 0.98x |
+| jump_end | deep | 1,000,000 | 10.76 | 11.44 | 0.94x |
+| build | wide | 10,000 | 90.84 | 15.36 | 5.92x |
+| expand_all | wide | 10,000 | 1.39 | 0.297 | 4.69x |
+| toggle | wide | 10,000 | 0.710 | 0.050 | 14.2x |
+| filter | wide | 10,000 | 3.63 | 0.541 | 6.72x |
+| select_range | wide | 10,000 | 0.312 | 0.436 | 0.72x |
+| first_frame | wide | 10,000 | 16.30 | 17.57 | 0.93x |
+| jump_middle | wide | 10,000 | 13.44 | 17.28 | 0.78x |
+| jump_end | wide | 10,000 | 9.06 | 11.57 | 0.78x |
+| build | wide | 100,000 | 1,536 | 237 | 6.49x |
+| expand_all | wide | 100,000 | 21.91 | 2.45 | 8.94x |
+| toggle | wide | 100,000 | 17.07 | 0.631 | 27.1x |
+| filter | wide | 100,000 | 49.04 | 6.27 | 7.82x |
+| select_range | wide | 100,000 | 3.15 | 4.08 | 0.77x |
+| first_frame | wide | 100,000 | 17.79 | 17.64 | 1.01x |
+| jump_middle | wide | 100,000 | 14.32 | 15.13 | 0.95x |
+| jump_end | wide | 100,000 | 8.81 | 9.92 | 0.89x |
+| build | wide | 1,000,000 | 53,985 | 2,656 | 20.3x |
+| expand_all | wide | 1,000,000 | 542 | 53.27 | 10.2x |
+| toggle | wide | 1,000,000 | 366 | 7.58 | 48.2x |
+| filter | wide | 1,000,000 | 653 | 143 | 4.58x |
+| select_range | wide | 1,000,000 | 66.02 | 77.22 | 0.85x |
+| first_frame | wide | 1,000,000 | 32.88 | 16.96 | 1.94x |
+| jump_middle | wide | 1,000,000 | 18.22 | 16.14 | 1.13x |
+| jump_end | wide | 1,000,000 | 10.26 | 11.63 | 0.88x |
 
 ## Workloads
 
@@ -249,99 +249,195 @@ Every measured record reports the counts `WorkloadExpectations` derives from the
 
 | implementation | mode | operation | shape | size | median | min | max | result counts / failure |
 |---|---|---|---|---:|---:|---:|---:|---|
-| v1 | aot | build | deep | 10,000 | 256 | 253 | 296 | rows 12, nodes 11547 |
-| v1 | aot | expand_all | deep | 10,000 | 1.99 | 1.94 | 2.07 | rows 11545 |
-| v1 | aot | toggle | deep | 10,000 | 1.30 | 1.28 | 3.28 | rows 10647, hidden_rows 898 |
-| v1 | aot | filter | deep | 10,000 | 4.62 | 4.25 | 6.88 | rows 1080 |
-| v1 | aot | select_range | deep | 10,000 | 0.263 | 0.258 | 0.268 | selected 5773 |
-| v1 | aot | first_frame | deep | 10,000 | 2.71 | 2.55 | 4.40 | rows 11545, built_rows 31, first_index 0, last_index 30 |
-| v1 | aot | jump_middle | deep | 10,000 | 3.25 | 3.09 | 3.85 | rows 11545, built_rows 41, first_index 5752, last_index 5792 |
-| v1 | aot | jump_end | deep | 10,000 | 2.54 | 2.29 | 2.58 | rows 11545, built_rows 31, first_index 11514, last_index 11544 |
-| v1 | aot | build | deep | 100,000 | 2,621 | 2,567 | 2,690 | rows 12, nodes 113334 |
-| v1 | aot | expand_all | deep | 100,000 | 38.49 | 26.40 | 42.49 | rows 113332 |
-| v1 | aot | toggle | deep | 100,000 | 33.48 | 26.62 | 46.92 | rows 97749, hidden_rows 15583 |
-| v1 | aot | filter | deep | 100,000 | 61.98 | 54.75 | 65.45 | rows 8949 |
-| v1 | aot | select_range | deep | 100,000 | 5.93 | 3.37 | 6.21 | selected 56667 |
-| v1 | aot | first_frame | deep | 100,000 | 5.73 | 4.24 | 9.16 | rows 113332, built_rows 31, first_index 0, last_index 30 |
-| v1 | aot | jump_middle | deep | 100,000 | 2.67 | 2.23 | 3.25 | rows 113332, built_rows 40, first_index 56646, last_index 56685 |
-| v1 | aot | jump_end | deep | 100,000 | 2.09 | 1.98 | 2.65 | rows 113332, built_rows 31, first_index 113301, last_index 113331 |
-| v1 | aot | build | deep | 1,000,000 | 30,646 | 30,377 | 31,323 | rows 12, nodes 1122071 |
-| v1 | aot | expand_all | deep | 1,000,000 | 1,019 | 899 | 1,139 | rows 1122069 |
-| v1 | aot | toggle | deep | 1,000,000 | 741 | 727 | 845 | rows 1022638, hidden_rows 99431 |
-| v1 | aot | filter | deep | 1,000,000 | 906 | 884 | 1,124 | rows 82062 |
-| v1 | aot | select_range | deep | 1,000,000 | 183 | 163 | 242 | selected 561035 |
-| v1 | aot | first_frame | deep | 1,000,000 | 46.66 | 30.84 | 49.81 | rows 1122069, built_rows 31, first_index 0, last_index 30 |
-| v1 | aot | jump_middle | deep | 1,000,000 | 6.02 | 3.41 | 7.40 | rows 1122069, built_rows 41, first_index 561014, last_index 561054 |
-| v1 | aot | jump_end | deep | 1,000,000 | 3.00 | 2.56 | 6.09 | rows 1122069, built_rows 31, first_index 1122038, last_index 1122068 |
-| v1 | aot | build | wide | 10,000 | 108 | 104 | 122 | rows 8, nodes 10011 |
-| v1 | aot | expand_all | wide | 10,000 | 1.44 | 1.42 | 1.68 | rows 10009 |
-| v1 | aot | toggle | wide | 10,000 | 0.722 | 0.719 | 0.778 | rows 7886, hidden_rows 2123 |
-| v1 | aot | filter | wide | 10,000 | 4.64 | 3.88 | 5.17 | rows 332 |
-| v1 | aot | select_range | wide | 10,000 | 0.248 | 0.248 | 0.274 | selected 5005 |
-| v1 | aot | first_frame | wide | 10,000 | 2.26 | 2.08 | 2.33 | rows 10009, built_rows 31, first_index 0, last_index 30 |
-| v1 | aot | jump_middle | wide | 10,000 | 3.36 | 3.23 | 4.78 | rows 10009, built_rows 41, first_index 4984, last_index 5024 |
-| v1 | aot | jump_end | wide | 10,000 | 2.54 | 2.18 | 2.63 | rows 10009, built_rows 31, first_index 9978, last_index 10008 |
-| v1 | aot | build | wide | 100,000 | 1,890 | 1,812 | 2,000 | rows 11, nodes 100024 |
-| v1 | aot | expand_all | wide | 100,000 | 34.20 | 21.09 | 41.35 | rows 100022 |
-| v1 | aot | toggle | wide | 100,000 | 18.68 | 16.75 | 37.77 | rows 94055, hidden_rows 5967 |
-| v1 | aot | filter | wide | 100,000 | 68.59 | 58.48 | 74.61 | rows 3029 |
-| v1 | aot | select_range | wide | 100,000 | 8.79 | 3.66 | 12.08 | selected 50012 |
-| v1 | aot | first_frame | wide | 100,000 | 3.55 | 3.35 | 8.62 | rows 100022, built_rows 31, first_index 0, last_index 30 |
-| v1 | aot | jump_middle | wide | 100,000 | 2.91 | 2.63 | 2.97 | rows 100022, built_rows 40, first_index 49991, last_index 50030 |
-| v1 | aot | jump_end | wide | 100,000 | 2.30 | 2.24 | 2.65 | rows 100022, built_rows 31, first_index 99991, last_index 100021 |
-| v1 | aot | build | wide | 1,000,000 |  |  |  | timeout in warmup, 0 runs done |
+| v1 | aot | build | deep | 10,000 | 241 | 236 | 250 | rows 12, nodes 11547 |
+| v2 | aot | build | deep | 10,000 | 23.01 | 15.63 | 28.92 | rows 12, nodes 11545 |
+| v1 | aot | expand_all | deep | 10,000 | 1.77 | 1.76 | 1.80 | rows 11545 |
+| v2 | aot | expand_all | deep | 10,000 | 0.351 | 0.346 | 0.378 | rows 11545 |
+| v1 | aot | toggle | deep | 10,000 | 1.30 | 1.24 | 2.64 | rows 10647, hidden_rows 898 |
+| v2 | aot | toggle | deep | 10,000 | 0.103 | 0.102 | 0.105 | rows 10647, hidden_rows 898 |
+| v1 | aot | filter | deep | 10,000 | 4.27 | 4.01 | 5.48 | rows 1080 |
+| v2 | aot | filter | deep | 10,000 | 0.658 | 0.651 | 0.683 | rows 1080 |
+| v1 | aot | select_range | deep | 10,000 | 0.256 | 0.254 | 0.260 | selected 5773 |
+| v2 | aot | select_range | deep | 10,000 | 0.370 | 0.366 | 0.373 | selected 5773 |
+| v1 | aot | first_frame | deep | 10,000 | 2.13 | 1.94 | 2.43 | rows 11545, built_rows 31, first_index 0, last_index 30 |
+| v2 | aot | first_frame | deep | 10,000 | 2.11 | 1.97 | 2.49 | rows 11545, built_rows 31, first_index 0, last_index 30 |
+| v1 | aot | jump_middle | deep | 10,000 | 2.74 | 2.65 | 2.83 | rows 11545, built_rows 41, first_index 5752, last_index 5792 |
+| v2 | aot | jump_middle | deep | 10,000 | 2.51 | 2.44 | 2.77 | rows 11545, built_rows 41, first_index 5752, last_index 5792 |
+| v1 | aot | jump_end | deep | 10,000 | 2.40 | 2.29 | 2.77 | rows 11545, built_rows 31, first_index 11514, last_index 11544 |
+| v2 | aot | jump_end | deep | 10,000 | 2.10 | 2.02 | 2.21 | rows 11545, built_rows 31, first_index 11514, last_index 11544 |
+| v1 | aot | build | deep | 100,000 | 2,485 | 2,466 | 2,503 | rows 12, nodes 113334 |
+| v2 | aot | build | deep | 100,000 | 218 | 202 | 221 | rows 12, nodes 113332 |
+| v1 | aot | expand_all | deep | 100,000 | 29.26 | 25.75 | 35.85 | rows 113332 |
+| v2 | aot | expand_all | deep | 100,000 | 4.38 | 3.92 | 12.88 | rows 113332 |
+| v1 | aot | toggle | deep | 100,000 | 31.15 | 18.14 | 31.95 | rows 97749, hidden_rows 15583 |
+| v2 | aot | toggle | deep | 100,000 | 1.25 | 1.12 | 1.45 | rows 97749, hidden_rows 15583 |
+| v1 | aot | filter | deep | 100,000 | 58.79 | 52.50 | 59.72 | rows 8949 |
+| v2 | aot | filter | deep | 100,000 | 8.29 | 7.15 | 14.72 | rows 8949 |
+| v1 | aot | select_range | deep | 100,000 | 4.22 | 3.31 | 7.30 | selected 56667 |
+| v2 | aot | select_range | deep | 100,000 | 4.39 | 4.13 | 16.92 | selected 56667 |
+| v1 | aot | first_frame | deep | 100,000 | 3.90 | 3.40 | 6.26 | rows 113332, built_rows 31, first_index 0, last_index 30 |
+| v2 | aot | first_frame | deep | 100,000 | 1.98 | 1.82 | 3.49 | rows 113332, built_rows 31, first_index 0, last_index 30 |
+| v1 | aot | jump_middle | deep | 100,000 | 2.41 | 2.36 | 3.42 | rows 113332, built_rows 40, first_index 56646, last_index 56685 |
+| v2 | aot | jump_middle | deep | 100,000 | 4.31 | 2.62 | 8.78 | rows 113332, built_rows 40, first_index 56646, last_index 56685 |
+| v1 | aot | jump_end | deep | 100,000 | 2.06 | 1.89 | 2.20 | rows 113332, built_rows 31, first_index 113301, last_index 113331 |
+| v2 | aot | jump_end | deep | 100,000 | 2.11 | 1.98 | 2.20 | rows 113332, built_rows 31, first_index 113301, last_index 113331 |
+| v1 | aot | build | deep | 1,000,000 | 28,293 | 28,233 | 28,341 | rows 12, nodes 1122071 |
+| v2 | aot | build | deep | 1,000,000 | 3,040 | 2,918 | 3,127 | rows 12, nodes 1122069 |
+| v1 | aot | expand_all | deep | 1,000,000 | 684 | 606 | 751 | rows 1122069 |
+| v2 | aot | expand_all | deep | 1,000,000 | 114 | 80.96 | 145 | rows 1122069 |
+| v1 | aot | toggle | deep | 1,000,000 | 397 | 385 | 463 | rows 1022638, hidden_rows 99431 |
+| v2 | aot | toggle | deep | 1,000,000 | 15.72 | 14.80 | 23.70 | rows 1022638, hidden_rows 99431 |
+| v1 | aot | filter | deep | 1,000,000 | 728 | 713 | 815 | rows 82062 |
+| v2 | aot | filter | deep | 1,000,000 | 109 | 92.80 | 127 | rows 82062 |
+| v1 | aot | select_range | deep | 1,000,000 | 101 | 99.46 | 133 | selected 561035 |
+| v2 | aot | select_range | deep | 1,000,000 | 84.78 | 84.39 | 118 | selected 561035 |
+| v1 | aot | first_frame | deep | 1,000,000 | 24.62 | 22.86 | 31.31 | rows 1122069, built_rows 31, first_index 0, last_index 30 |
+| v2 | aot | first_frame | deep | 1,000,000 | 5.51 | 4.93 | 7.56 | rows 1122069, built_rows 31, first_index 0, last_index 30 |
+| v1 | aot | jump_middle | deep | 1,000,000 | 2.62 | 2.42 | 4.72 | rows 1122069, built_rows 41, first_index 561014, last_index 561054 |
+| v2 | aot | jump_middle | deep | 1,000,000 | 4.53 | 2.66 | 7.30 | rows 1122069, built_rows 41, first_index 561014, last_index 561054 |
+| v1 | aot | jump_end | deep | 1,000,000 | 1.94 | 1.85 | 2.02 | rows 1122069, built_rows 31, first_index 1122038, last_index 1122068 |
+| v2 | aot | jump_end | deep | 1,000,000 | 4.72 | 4.09 | 5.34 | rows 1122069, built_rows 31, first_index 1122038, last_index 1122068 |
+| v1 | aot | build | wide | 10,000 | 97.75 | 93.45 | 100 | rows 8, nodes 10011 |
+| v2 | aot | build | wide | 10,000 | 13.32 | 12.49 | 14.34 | rows 8, nodes 10009 |
+| v1 | aot | expand_all | wide | 10,000 | 1.42 | 1.35 | 2.56 | rows 10009 |
+| v2 | aot | expand_all | wide | 10,000 | 0.215 | 0.210 | 0.219 | rows 10009 |
+| v1 | aot | toggle | wide | 10,000 | 0.705 | 0.694 | 0.725 | rows 7886, hidden_rows 2123 |
+| v2 | aot | toggle | wide | 10,000 | 0.058 | 0.058 | 0.061 | rows 7886, hidden_rows 2123 |
+| v1 | aot | filter | wide | 10,000 | 3.94 | 3.59 | 6.25 | rows 332 |
+| v2 | aot | filter | wide | 10,000 | 0.549 | 0.521 | 1.54 | rows 332 |
+| v1 | aot | select_range | wide | 10,000 | 0.477 | 0.242 | 0.511 | selected 5005 |
+| v2 | aot | select_range | wide | 10,000 | 0.328 | 0.318 | 0.340 | selected 5005 |
+| v1 | aot | first_frame | wide | 10,000 | 2.00 | 1.83 | 2.19 | rows 10009, built_rows 31, first_index 0, last_index 30 |
+| v2 | aot | first_frame | wide | 10,000 | 1.90 | 1.84 | 2.08 | rows 10009, built_rows 31, first_index 0, last_index 30 |
+| v1 | aot | jump_middle | wide | 10,000 | 2.22 | 2.10 | 2.33 | rows 10009, built_rows 41, first_index 4984, last_index 5024 |
+| v2 | aot | jump_middle | wide | 10,000 | 2.85 | 2.66 | 3.36 | rows 10009, built_rows 41, first_index 4984, last_index 5024 |
+| v1 | aot | jump_end | wide | 10,000 | 2.34 | 2.18 | 2.35 | rows 10009, built_rows 31, first_index 9978, last_index 10008 |
+| v2 | aot | jump_end | wide | 10,000 | 2.76 | 2.44 | 3.00 | rows 10009, built_rows 31, first_index 9978, last_index 10008 |
+| v1 | aot | build | wide | 100,000 | 1,667 | 1,659 | 1,684 | rows 11, nodes 100024 |
+| v2 | aot | build | wide | 100,000 | 193 | 189 | 195 | rows 11, nodes 100022 |
+| v1 | aot | expand_all | wide | 100,000 | 25.43 | 19.92 | 38.69 | rows 100022 |
+| v2 | aot | expand_all | wide | 100,000 | 4.94 | 2.71 | 12.64 | rows 100022 |
+| v1 | aot | toggle | wide | 100,000 | 15.73 | 14.58 | 35.79 | rows 94055, hidden_rows 5967 |
+| v2 | aot | toggle | wide | 100,000 | 0.994 | 0.972 | 1.16 | rows 94055, hidden_rows 5967 |
+| v1 | aot | filter | wide | 100,000 | 53.50 | 53.02 | 57.82 | rows 3029 |
+| v2 | aot | filter | wide | 100,000 | 6.02 | 5.57 | 9.19 | rows 3029 |
+| v1 | aot | select_range | wide | 100,000 | 4.02 | 3.10 | 7.55 | selected 50012 |
+| v2 | aot | select_range | wide | 100,000 | 3.97 | 3.93 | 11.44 | selected 50012 |
+| v1 | aot | first_frame | wide | 100,000 | 2.95 | 2.73 | 5.07 | rows 100022, built_rows 31, first_index 0, last_index 30 |
+| v2 | aot | first_frame | wide | 100,000 | 1.71 | 1.66 | 1.88 | rows 100022, built_rows 31, first_index 0, last_index 30 |
+| v1 | aot | jump_middle | wide | 100,000 | 2.54 | 2.25 | 2.92 | rows 100022, built_rows 40, first_index 49991, last_index 50030 |
+| v2 | aot | jump_middle | wide | 100,000 | 2.35 | 2.30 | 2.71 | rows 100022, built_rows 40, first_index 49991, last_index 50030 |
+| v1 | aot | jump_end | wide | 100,000 | 1.99 | 1.90 | 2.15 | rows 100022, built_rows 31, first_index 99991, last_index 100021 |
+| v2 | aot | jump_end | wide | 100,000 | 2.06 | 1.93 | 2.25 | rows 100022, built_rows 31, first_index 99991, last_index 100021 |
+| v1 | aot | build | wide | 1,000,000 |  |  |  | timeout in run, 1 runs done |
+| v2 | aot | build | wide | 1,000,000 | 2,454 | 2,409 | 2,534 | rows 18, nodes 1000062 |
 | v1 | aot | expand_all | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | expand_all | wide | 1,000,000 | 112 | 70.17 | 141 | rows 1000062 |
 | v1 | aot | toggle | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | toggle | wide | 1,000,000 | 8.65 | 8.46 | 17.83 | rows 877247, hidden_rows 122815 |
 | v1 | aot | filter | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | filter | wide | 1,000,000 | 142 | 139 | 171 | rows 29999 |
 | v1 | aot | select_range | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | select_range | wide | 1,000,000 | 72.35 | 71.31 | 87.59 | selected 500032 |
 | v1 | aot | first_frame | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | first_frame | wide | 1,000,000 | 4.18 | 3.88 | 6.26 | rows 1000062, built_rows 31, first_index 0, last_index 30 |
 | v1 | aot | jump_middle | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | jump_middle | wide | 1,000,000 | 3.02 | 2.51 | 11.04 | rows 1000062, built_rows 40, first_index 500011, last_index 500050 |
 | v1 | aot | jump_end | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | build | deep | 10,000 | 249 | 237 | 351 | rows 12, nodes 11547 |
-| v1 | jit | expand_all | deep | 10,000 | 2.65 | 2.38 | 2.81 | rows 11545 |
-| v1 | jit | toggle | deep | 10,000 | 1.80 | 1.37 | 4.20 | rows 10647, hidden_rows 898 |
-| v1 | jit | filter | deep | 10,000 | 6.32 | 5.45 | 7.41 | rows 1080 |
-| v1 | jit | select_range | deep | 10,000 | 0.861 | 0.427 | 1.25 | selected 5773 |
-| v1 | jit | first_frame | deep | 10,000 | 29.59 | 27.11 | 40.70 | rows 11545, built_rows 31, first_index 0, last_index 30 |
-| v1 | jit | jump_middle | deep | 10,000 | 71.33 | 46.88 | 109 | rows 11545, built_rows 41, first_index 5752, last_index 5792 |
-| v1 | jit | jump_end | deep | 10,000 | 28.16 | 17.22 | 55.07 | rows 11545, built_rows 31, first_index 11514, last_index 11544 |
-| v1 | jit | build | deep | 100,000 | 2,608 | 2,509 | 4,460 | rows 12, nodes 113334 |
-| v1 | jit | expand_all | deep | 100,000 | 61.97 | 47.90 | 83.40 | rows 113332 |
-| v1 | jit | toggle | deep | 100,000 | 45.63 | 42.71 | 85.34 | rows 97749, hidden_rows 15583 |
-| v1 | jit | filter | deep | 100,000 | 97.43 | 67.50 | 110 | rows 8949 |
-| v1 | jit | select_range | deep | 100,000 | 5.48 | 5.20 | 13.30 | selected 56667 |
-| v1 | jit | first_frame | deep | 100,000 | 36.97 | 30.75 | 43.13 | rows 113332, built_rows 31, first_index 0, last_index 30 |
-| v1 | jit | jump_middle | deep | 100,000 | 23.80 | 20.27 | 30.86 | rows 113332, built_rows 40, first_index 56646, last_index 56685 |
-| v1 | jit | jump_end | deep | 100,000 | 15.55 | 12.21 | 16.66 | rows 113332, built_rows 31, first_index 113301, last_index 113331 |
-| v1 | jit | build | deep | 1,000,000 | 35,639 | 29,675 | 38,986 | rows 12, nodes 1122071 |
-| v1 | jit | expand_all | deep | 1,000,000 | 932 | 843 | 969 | rows 1122069 |
-| v1 | jit | toggle | deep | 1,000,000 | 619 | 477 | 670 | rows 1022638, hidden_rows 99431 |
-| v1 | jit | filter | deep | 1,000,000 | 953 | 877 | 1,258 | rows 82062 |
-| v1 | jit | select_range | deep | 1,000,000 | 129 | 126 | 261 | selected 561035 |
-| v1 | jit | first_frame | deep | 1,000,000 | 55.99 | 50.64 | 61.08 | rows 1122069, built_rows 31, first_index 0, last_index 30 |
-| v1 | jit | jump_middle | deep | 1,000,000 | 27.28 | 20.65 | 30.95 | rows 1122069, built_rows 41, first_index 561014, last_index 561054 |
-| v1 | jit | jump_end | deep | 1,000,000 | 21.18 | 16.05 | 24.41 | rows 1122069, built_rows 31, first_index 1122038, last_index 1122068 |
-| v1 | jit | build | wide | 10,000 | 114 | 99.78 | 115 | rows 8, nodes 10011 |
-| v1 | jit | expand_all | wide | 10,000 | 2.08 | 1.57 | 2.46 | rows 10009 |
-| v1 | jit | toggle | wide | 10,000 | 1.05 | 1.03 | 2.19 | rows 7886, hidden_rows 2123 |
-| v1 | jit | filter | wide | 10,000 | 4.99 | 4.22 | 6.02 | rows 332 |
-| v1 | jit | select_range | wide | 10,000 | 0.491 | 0.375 | 1.29 | selected 5005 |
-| v1 | jit | first_frame | wide | 10,000 | 21.72 | 18.83 | 30.24 | rows 10009, built_rows 31, first_index 0, last_index 30 |
-| v1 | jit | jump_middle | wide | 10,000 | 20.73 | 17.03 | 30.29 | rows 10009, built_rows 41, first_index 4984, last_index 5024 |
-| v1 | jit | jump_end | wide | 10,000 | 12.90 | 9.80 | 23.24 | rows 10009, built_rows 31, first_index 9978, last_index 10008 |
-| v1 | jit | build | wide | 100,000 | 1,759 | 1,700 | 1,780 | rows 11, nodes 100024 |
-| v1 | jit | expand_all | wide | 100,000 | 52.90 | 37.52 | 59.77 | rows 100022 |
-| v1 | jit | toggle | wide | 100,000 | 35.02 | 26.65 | 55.73 | rows 94055, hidden_rows 5967 |
-| v1 | jit | filter | wide | 100,000 | 65.38 | 58.42 | 87.24 | rows 3029 |
-| v1 | jit | select_range | wide | 100,000 | 5.81 | 4.84 | 8.73 | selected 50012 |
-| v1 | jit | first_frame | wide | 100,000 | 22.98 | 19.53 | 26.97 | rows 100022, built_rows 31, first_index 0, last_index 30 |
-| v1 | jit | jump_middle | wide | 100,000 | 23.92 | 18.40 | 36.35 | rows 100022, built_rows 40, first_index 49991, last_index 50030 |
-| v1 | jit | jump_end | wide | 100,000 | 13.87 | 11.55 | 17.65 | rows 100022, built_rows 31, first_index 99991, last_index 100021 |
-| v1 | jit | build | wide | 1,000,000 |  |  |  | timeout in warmup, 0 runs done |
-| v1 | jit | expand_all | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | toggle | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | filter | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | select_range | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | first_frame | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | jump_middle | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
-| v1 | jit | jump_end | wide | 1,000,000 |  |  |  | timeout in blocked, blocked by build |
+| v2 | aot | jump_end | wide | 1,000,000 | 2.13 | 1.99 | 2.60 | rows 1000062, built_rows 31, first_index 1000031, last_index 1000061 |
+| v1 | jit | build | deep | 10,000 | 233 | 227 | 239 | rows 12, nodes 11547 |
+| v2 | jit | build | deep | 10,000 | 23.74 | 21.68 | 47.56 | rows 12, nodes 11545 |
+| v1 | jit | expand_all | deep | 10,000 | 2.46 | 1.99 | 2.82 | rows 11545 |
+| v2 | jit | expand_all | deep | 10,000 | 0.514 | 0.420 | 5.89 | rows 11545 |
+| v1 | jit | toggle | deep | 10,000 | 1.50 | 1.27 | 2.14 | rows 10647, hidden_rows 898 |
+| v2 | jit | toggle | deep | 10,000 | 0.203 | 0.046 | 0.225 | rows 10647, hidden_rows 898 |
+| v1 | jit | filter | deep | 10,000 | 4.65 | 4.46 | 5.17 | rows 1080 |
+| v2 | jit | filter | deep | 10,000 | 1.71 | 0.652 | 2.61 | rows 1080 |
+| v1 | jit | select_range | deep | 10,000 | 0.438 | 0.290 | 0.602 | selected 5773 |
+| v2 | jit | select_range | deep | 10,000 | 0.803 | 0.497 | 1.57 | selected 5773 |
+| v1 | jit | first_frame | deep | 10,000 | 25.65 | 20.09 | 35.78 | rows 11545, built_rows 31, first_index 0, last_index 30 |
+| v2 | jit | first_frame | deep | 10,000 | 27.94 | 23.50 | 34.62 | rows 11545, built_rows 31, first_index 0, last_index 30 |
+| v1 | jit | jump_middle | deep | 10,000 | 23.31 | 17.70 | 31.83 | rows 11545, built_rows 41, first_index 5752, last_index 5792 |
+| v2 | jit | jump_middle | deep | 10,000 | 24.43 | 20.95 | 26.39 | rows 11545, built_rows 41, first_index 5752, last_index 5792 |
+| v1 | jit | jump_end | deep | 10,000 | 12.54 | 11.75 | 14.62 | rows 11545, built_rows 31, first_index 11514, last_index 11544 |
+| v2 | jit | jump_end | deep | 10,000 | 15.82 | 13.60 | 16.38 | rows 11545, built_rows 31, first_index 11514, last_index 11544 |
+| v1 | jit | build | deep | 100,000 | 2,464 | 2,395 | 2,504 | rows 12, nodes 113334 |
+| v2 | jit | build | deep | 100,000 | 278 | 259 | 293 | rows 12, nodes 113332 |
+| v1 | jit | expand_all | deep | 100,000 | 39.29 | 29.15 | 61.07 | rows 113332 |
+| v2 | jit | expand_all | deep | 100,000 | 9.28 | 3.87 | 13.53 | rows 113332 |
+| v1 | jit | toggle | deep | 100,000 | 31.27 | 25.68 | 43.12 | rows 97749, hidden_rows 15583 |
+| v2 | jit | toggle | deep | 100,000 | 0.630 | 0.610 | 1.65 | rows 97749, hidden_rows 15583 |
+| v1 | jit | filter | deep | 100,000 | 70.61 | 59.40 | 96.47 | rows 8949 |
+| v2 | jit | filter | deep | 100,000 | 7.73 | 7.34 | 15.16 | rows 8949 |
+| v1 | jit | select_range | deep | 100,000 | 7.66 | 5.87 | 15.66 | selected 56667 |
+| v2 | jit | select_range | deep | 100,000 | 4.69 | 4.15 | 11.26 | selected 56667 |
+| v1 | jit | first_frame | deep | 100,000 | 25.37 | 21.08 | 32.29 | rows 113332, built_rows 31, first_index 0, last_index 30 |
+| v2 | jit | first_frame | deep | 100,000 | 21.28 | 18.62 | 27.50 | rows 113332, built_rows 31, first_index 0, last_index 30 |
+| v1 | jit | jump_middle | deep | 100,000 | 18.73 | 16.35 | 23.47 | rows 113332, built_rows 40, first_index 56646, last_index 56685 |
+| v2 | jit | jump_middle | deep | 100,000 | 20.25 | 15.87 | 22.82 | rows 113332, built_rows 40, first_index 56646, last_index 56685 |
+| v1 | jit | jump_end | deep | 100,000 | 12.45 | 11.57 | 14.11 | rows 113332, built_rows 31, first_index 113301, last_index 113331 |
+| v2 | jit | jump_end | deep | 100,000 | 10.58 | 10.05 | 11.64 | rows 113332, built_rows 31, first_index 113301, last_index 113331 |
+| v1 | jit | build | deep | 1,000,000 | 26,810 | 26,646 | 27,354 | rows 12, nodes 1122071 |
+| v2 | jit | build | deep | 1,000,000 | 2,775 | 2,657 | 2,817 | rows 12, nodes 1122069 |
+| v1 | jit | expand_all | deep | 1,000,000 | 694 | 678 | 743 | rows 1122069 |
+| v2 | jit | expand_all | deep | 1,000,000 | 111 | 78.39 | 150 | rows 1122069 |
+| v1 | jit | toggle | deep | 1,000,000 | 445 | 376 | 494 | rows 1022638, hidden_rows 99431 |
+| v2 | jit | toggle | deep | 1,000,000 | 13.28 | 11.62 | 15.88 | rows 1022638, hidden_rows 99431 |
+| v1 | jit | filter | deep | 1,000,000 | 786 | 704 | 810 | rows 82062 |
+| v2 | jit | filter | deep | 1,000,000 | 99.89 | 96.31 | 121 | rows 82062 |
+| v1 | jit | select_range | deep | 1,000,000 | 105 | 102 | 186 | selected 561035 |
+| v2 | jit | select_range | deep | 1,000,000 | 87.50 | 85.11 | 194 | selected 561035 |
+| v1 | jit | first_frame | deep | 1,000,000 | 40.50 | 38.10 | 46.23 | rows 1122069, built_rows 31, first_index 0, last_index 30 |
+| v2 | jit | first_frame | deep | 1,000,000 | 23.17 | 19.91 | 28.24 | rows 1122069, built_rows 31, first_index 0, last_index 30 |
+| v1 | jit | jump_middle | deep | 1,000,000 | 19.16 | 17.20 | 19.72 | rows 1122069, built_rows 41, first_index 561014, last_index 561054 |
+| v2 | jit | jump_middle | deep | 1,000,000 | 21.38 | 17.47 | 23.13 | rows 1122069, built_rows 41, first_index 561014, last_index 561054 |
+| v1 | jit | jump_end | deep | 1,000,000 | 12.20 | 10.76 | 13.35 | rows 1122069, built_rows 31, first_index 1122038, last_index 1122068 |
+| v2 | jit | jump_end | deep | 1,000,000 | 13.12 | 11.44 | 13.49 | rows 1122069, built_rows 31, first_index 1122038, last_index 1122068 |
+| v1 | jit | build | wide | 10,000 | 93.36 | 90.84 | 99.15 | rows 8, nodes 10011 |
+| v2 | jit | build | wide | 10,000 | 16.56 | 15.36 | 39.47 | rows 8, nodes 10009 |
+| v1 | jit | expand_all | wide | 10,000 | 1.46 | 1.39 | 1.78 | rows 10009 |
+| v2 | jit | expand_all | wide | 10,000 | 0.461 | 0.297 | 4.92 | rows 10009 |
+| v1 | jit | toggle | wide | 10,000 | 0.726 | 0.710 | 0.791 | rows 7886, hidden_rows 2123 |
+| v2 | jit | toggle | wide | 10,000 | 0.160 | 0.050 | 0.185 | rows 7886, hidden_rows 2123 |
+| v1 | jit | filter | wide | 10,000 | 3.90 | 3.63 | 8.04 | rows 332 |
+| v2 | jit | filter | wide | 10,000 | 1.30 | 0.541 | 3.53 | rows 332 |
+| v1 | jit | select_range | wide | 10,000 | 0.415 | 0.312 | 0.565 | selected 5005 |
+| v2 | jit | select_range | wide | 10,000 | 0.718 | 0.436 | 1.63 | selected 5005 |
+| v1 | jit | first_frame | wide | 10,000 | 17.75 | 16.30 | 21.53 | rows 10009, built_rows 31, first_index 0, last_index 30 |
+| v2 | jit | first_frame | wide | 10,000 | 19.58 | 17.57 | 25.16 | rows 10009, built_rows 31, first_index 0, last_index 30 |
+| v1 | jit | jump_middle | wide | 10,000 | 15.56 | 13.44 | 24.18 | rows 10009, built_rows 41, first_index 4984, last_index 5024 |
+| v2 | jit | jump_middle | wide | 10,000 | 21.13 | 17.28 | 21.78 | rows 10009, built_rows 41, first_index 4984, last_index 5024 |
+| v1 | jit | jump_end | wide | 10,000 | 9.60 | 9.06 | 10.14 | rows 10009, built_rows 31, first_index 9978, last_index 10008 |
+| v2 | jit | jump_end | wide | 10,000 | 11.98 | 11.57 | 12.70 | rows 10009, built_rows 31, first_index 9978, last_index 10008 |
+| v1 | jit | build | wide | 100,000 | 1,552 | 1,536 | 1,568 | rows 11, nodes 100024 |
+| v2 | jit | build | wide | 100,000 | 244 | 237 | 261 | rows 11, nodes 100022 |
+| v1 | jit | expand_all | wide | 100,000 | 30.09 | 21.91 | 37.93 | rows 100022 |
+| v2 | jit | expand_all | wide | 100,000 | 9.24 | 2.45 | 15.06 | rows 100022 |
+| v1 | jit | toggle | wide | 100,000 | 22.35 | 17.07 | 35.46 | rows 94055, hidden_rows 5967 |
+| v2 | jit | toggle | wide | 100,000 | 0.642 | 0.631 | 1.63 | rows 94055, hidden_rows 5967 |
+| v1 | jit | filter | wide | 100,000 | 49.98 | 49.04 | 54.79 | rows 3029 |
+| v2 | jit | filter | wide | 100,000 | 8.16 | 6.27 | 12.02 | rows 3029 |
+| v1 | jit | select_range | wide | 100,000 | 3.17 | 3.15 | 5.59 | selected 50012 |
+| v2 | jit | select_range | wide | 100,000 | 5.73 | 4.08 | 10.51 | selected 50012 |
+| v1 | jit | first_frame | wide | 100,000 | 19.97 | 17.79 | 24.13 | rows 100022, built_rows 31, first_index 0, last_index 30 |
+| v2 | jit | first_frame | wide | 100,000 | 19.81 | 17.64 | 25.76 | rows 100022, built_rows 31, first_index 0, last_index 30 |
+| v1 | jit | jump_middle | wide | 100,000 | 18.98 | 14.32 | 26.43 | rows 100022, built_rows 40, first_index 49991, last_index 50030 |
+| v2 | jit | jump_middle | wide | 100,000 | 18.64 | 15.13 | 21.73 | rows 100022, built_rows 40, first_index 49991, last_index 50030 |
+| v1 | jit | jump_end | wide | 100,000 | 10.79 | 8.81 | 10.95 | rows 100022, built_rows 31, first_index 99991, last_index 100021 |
+| v2 | jit | jump_end | wide | 100,000 | 10.84 | 9.92 | 11.56 | rows 100022, built_rows 31, first_index 99991, last_index 100021 |
+| v1 | jit | build | wide | 1,000,000 | 54,324 | 53,985 | 54,881 | rows 18, nodes 1000064 |
+| v2 | jit | build | wide | 1,000,000 | 2,687 | 2,656 | 2,960 | rows 18, nodes 1000062 |
+| v1 | jit | expand_all | wide | 1,000,000 | 574 | 542 | 630 | rows 1000062 |
+| v2 | jit | expand_all | wide | 1,000,000 | 91.70 | 53.27 | 114 | rows 1000062 |
+| v1 | jit | toggle | wide | 1,000,000 | 432 | 366 | 445 | rows 877247, hidden_rows 122815 |
+| v2 | jit | toggle | wide | 1,000,000 | 8.18 | 7.58 | 15.01 | rows 877247, hidden_rows 122815 |
+| v1 | jit | filter | wide | 1,000,000 | 664 | 653 | 692 | rows 29999 |
+| v2 | jit | filter | wide | 1,000,000 | 149 | 143 | 188 | rows 29999 |
+| v1 | jit | select_range | wide | 1,000,000 | 70.57 | 66.02 | 75.32 | selected 500032 |
+| v2 | jit | select_range | wide | 1,000,000 | 89.25 | 77.22 | 116 | selected 500032 |
+| v1 | jit | first_frame | wide | 1,000,000 | 35.24 | 32.88 | 57.63 | rows 1000062, built_rows 31, first_index 0, last_index 30 |
+| v2 | jit | first_frame | wide | 1,000,000 | 20.48 | 16.96 | 27.25 | rows 1000062, built_rows 31, first_index 0, last_index 30 |
+| v1 | jit | jump_middle | wide | 1,000,000 | 20.58 | 18.22 | 21.81 | rows 1000062, built_rows 40, first_index 500011, last_index 500050 |
+| v2 | jit | jump_middle | wide | 1,000,000 | 17.45 | 16.14 | 20.39 | rows 1000062, built_rows 40, first_index 500011, last_index 500050 |
+| v1 | jit | jump_end | wide | 1,000,000 | 12.06 | 10.26 | 12.47 | rows 1000062, built_rows 31, first_index 1000031, last_index 1000061 |
+| v2 | jit | jump_end | wide | 1,000,000 | 12.73 | 11.63 | 12.97 | rows 1000062, built_rows 31, first_index 1000031, last_index 1000061 |

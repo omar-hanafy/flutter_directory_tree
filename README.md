@@ -823,7 +823,24 @@ Scrolling builds only the rows in the viewport, at a fixed height, so the
 cost of a frame does not grow with the tree. The type-ahead search reads
 each row label at most once per key press.
 
-<!-- benchmark numbers: filled in after the final run -->
+Measured against 1.0.0 on generated trees, in a macOS profile build on an
+Apple M2 Pro (medians in milliseconds, each cell 1.0.0 → 2.0.0; the full
+report, with JIT numbers and the fastest runs, is
+[benchmark/RESULTS.md](https://github.com/omar-hanafy/flutter_directory_tree/blob/main/benchmark/RESULTS.md)):
+
+| Operation, deep tree | 10,000 files | 100,000 files | 1,000,000 files |
+|---|---:|---:|---:|
+| Build the tree and controller | 241 → 23 | 2,485 → 218 | 28,293 → 3,040 |
+| Expand all | 1.8 → 0.35 | 29 → 4.4 | 684 → 114 |
+| Toggle one folder | 1.3 → 0.10 | 31 → 1.3 | 397 → 16 |
+| Filter by a query | 4.3 → 0.66 | 59 → 8.3 | 728 → 109 |
+| Select a range | 0.26 → 0.37 | 4.2 → 4.4 | 101 → 85 |
+| First frame | 2.1 → 2.1 | 3.9 → 2.0 | 25 → 5.5 |
+
+On a wide tree with 1,000,000 files, 1.0.0 did not finish building within
+60 seconds; 2.0.0 builds it in 2.5 seconds. Jumping the scroll position
+stays within a frame budget in both versions (2 to 5 ms); at 1,000,000
+files 2.0.0 is about 2 ms slower there.
 
 ## Accessibility
 
