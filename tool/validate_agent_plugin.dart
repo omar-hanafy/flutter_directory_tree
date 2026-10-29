@@ -22,10 +22,14 @@
 ///   agent which ordinary tools to run, through its own approval prompts;
 /// - both catalogs list this plugin under the manifests' `name`, from the
 ///   plugin folder itself, and agree with each other;
-/// - kebab-case identifiers, skill frontmatter (Agent Skills fields, one
-///   readable line per field, size limits), self-contained skill links
-///   (inline, angle-bracket, and reference-style), and no machine-specific
-///   or secret-looking content in any plugin file;
+/// - kebab-case identifiers; skill frontmatter: only the Agent Skills fields
+///   `name`, `description`, `license`, and `compatibility` (`allowed-tools`
+///   would let the agent use tools without the approval prompts both
+///   READMEs promise, and no skill needs the nested `metadata` map), each on
+///   one line with a value a YAML parser reads exactly as written; size
+///   limits; self-contained skill links (inline, angle-bracket, and
+///   reference-style, outside code; footnotes are not links); and no
+///   machine-specific or secret-looking content in any plugin file;
 /// - every eval case has a prompt and graders, and its skill graders name
 ///   skills that exist;
 /// - README.md and the plugin README show, as exact lines of a code block
@@ -96,14 +100,17 @@ const _interfaceFields = {
   'logo',
 };
 
-/// Agent Skills frontmatter fields (agentskills.io).
-const _skillFields = {
-  'name',
-  'description',
-  'license',
-  'compatibility',
-  'metadata',
-  'allowed-tools',
+/// The Agent Skills frontmatter fields (agentskills.io) a skill here may use.
+const _skillFields = {'name', 'description', 'license', 'compatibility'};
+
+/// Agent Skills fields that this plugin rejects, with the reason.
+const _rejectedSkillFields = {
+  'allowed-tools':
+      'lets the agent use those tools without asking, against the approval '
+      'prompts both READMEs promise',
+  'metadata':
+      'needs a nested map, which this one-line reader cannot check, and no '
+      'skill here needs it',
 };
 
 /// The files an instructions-only plugin may contain, relative to its root.
@@ -123,7 +130,7 @@ final _kebabCase = RegExp(r'^[a-z0-9]+(-[a-z0-9]+)*$');
 final _agentPluginsName = RegExp(
   r'^(?!.*(?:--|\.\.))[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$',
 );
-final _githubRepository = RegExp(r'^https://github\.com/[\w.-]+/[\w-]+$');
+final _githubRepository = RegExp(r'^https://github\.com/[\w.-]+/[\w.-]+$');
 final _errors = <String>[];
 
 void _fail(String message) => _errors.add(message);
@@ -302,10 +309,12 @@ void _checkAgentPluginsManifest(Map<String, dynamic> root) {
     _fail('$path: "author" must be an object with name, email, or url only.');
   }
   final repository = root['repository'];
-  if (repository is String && !_githubRepository.hasMatch(repository)) {
+  if (repository is String &&
+      (!_githubRepository.hasMatch(repository) ||
+          repository.endsWith('.git'))) {
     _fail(
-      '$path: "repository" must be https://github.com/<owner>/<repo>, '
-      'which the install commands are built from.',
+      '$path: "repository" must be https://github.com/<owner>/<repo> '
+      '(no ".git"), which the install commands are built from.',
     );
   }
   final homepage = root['homepage'];
@@ -396,9 +405,10 @@ void _checkIcon(String relativePath, String owner) {
     return;
   }
   // A complete PNG ends with the IEND chunk: its type, then its CRC.
+  const iend = [73, 69, 78, 68]; // "IEND"
   if (bytes.length < 45 ||
-      ascii.decode(bytes.sublist(bytes.length - 8, bytes.length - 4)) !=
-          'IEND') {
+      List.generate(4, (i) => bytes[bytes.length - 8 + i]).join(',') !=
+          iend.join(',')) {
     _fail('$owner: "$relativePath" is truncated (no IEND chunk at the end).');
     return;
   }
@@ -625,6 +635,7 @@ _parseFrontmatter(String path, String content) {
     _fail('$path: frontmatter never closes with "---".');
     return none;
   }
+  final keys = <String>{};
   final values = <String, String>{};
   for (final line in lines.sublist(1, end)) {
     if (line.trim().isEmpty) continue;
@@ -637,15 +648,15 @@ _parseFrontmatter(String path, String content) {
       continue;
     }
     final key = match.group(1)!;
-    final value = _yamlValue(path, key, (match.group(2) ?? '').trim());
-    if (values.containsKey(key)) {
+    if (!keys.add(key)) {
       _fail('$path: frontmatter repeats "$key".');
-    } else if (value != null) {
-      values[key] = value;
+      continue;
     }
+    final value = _yamlValue(path, key, (match.group(2) ?? '').trim());
+    if (value != null) values[key] = value;
   }
   return (
-    keys: values.keys.toSet(),
+    keys: keys,
     name: values['name'],
     description: values['description'],
     end: end,
@@ -653,25 +664,52 @@ _parseFrontmatter(String path, String content) {
 }
 
 /// The value of a one-line frontmatter field, or `null` (after reporting)
-/// when a YAML parser would read it differently from the text.
+/// when a YAML parser would read it differently from the text, or not at
+/// all.
 String? _yamlValue(String path, String key, String raw) {
-  void reject(String why) =>
-      _fail('$path: frontmatter "$key" $why; quote the value.');
+  void reject(String why) => _fail('$path: frontmatter "$key" $why.');
   if (raw.isEmpty) {
-    reject('has no value on its line (block values are not supported)');
+    reject(
+      'has no value on its line; nested maps, lists, and block values are '
+      'not supported',
+    );
     return null;
   }
   if (raw.startsWith('"')) {
-    if (raw.length < 2 || !raw.endsWith('"')) {
-      reject('opens a double quote that does not end the line');
+    // Only \" and \\ are allowed: every other YAML escape either fails to
+    // parse or turns into a character (a newline, a tab) that breaks the
+    // one-readable-line rule.
+    final value = StringBuffer();
+    var closing = -1;
+    for (var i = 1; i < raw.length; i++) {
+      final char = raw[i];
+      if (char == r'\') {
+        final next = i + 1 < raw.length ? raw[i + 1] : '';
+        if (next != '"' && next != r'\') {
+          reject(
+            'uses the escape "\\$next"; in double quotes write only \\" and '
+            '\\\\, or use single quotes',
+          );
+          return null;
+        }
+        value.write(next);
+        i++;
+      } else if (char == '"') {
+        closing = i;
+        break;
+      } else {
+        value.write(char);
+      }
+    }
+    if (closing == -1) {
+      reject('opens a double quote that never closes');
       return null;
     }
-    final inner = raw.substring(1, raw.length - 1);
-    if (RegExp(r'(^|[^\\])"').hasMatch(inner)) {
-      reject('has an unescaped double quote inside');
+    if (closing != raw.length - 1) {
+      reject('has text after its closing double quote');
       return null;
     }
-    return inner.replaceAll(r'\"', '"').replaceAll(r'\\', r'\');
+    return value.toString();
   }
   if (raw.startsWith("'")) {
     if (raw.length < 2 || !raw.endsWith("'")) {
@@ -680,39 +718,48 @@ String? _yamlValue(String path, String key, String raw) {
     }
     final inner = raw.substring(1, raw.length - 1);
     if (inner.replaceAll("''", '').contains("'")) {
-      reject('has an unescaped single quote inside');
+      reject("has a single quote inside that is not doubled ('')");
       return null;
     }
     return inner.replaceAll("''", "'");
   }
   if (_yamlIndicators.contains(raw[0]) ||
       (raw.length > 1 && '-?:'.contains(raw[0]) && raw[1] == ' ')) {
-    reject('starts with the YAML indicator "${raw[0]}"');
+    reject('starts with the YAML indicator "${raw[0]}"; quote the value');
     return null;
   }
   if (raw.contains(': ') || raw.endsWith(':')) {
-    reject('contains ": ", which ends a plain YAML value');
+    reject('contains ": ", which ends a plain YAML value; quote the value');
     return null;
   }
   if (raw.contains(' #')) {
-    reject('contains " #", which starts a YAML comment');
+    reject('contains " #", which starts a YAML comment; quote the value');
     return null;
   }
   return raw;
 }
 
 void _checkSkillLinks(String skillDir, String mdPath, String content) {
+  // Brackets in code are code, not links: drop fenced blocks first, then
+  // code spans (a span keeps a placeholder, so link text stays non-empty).
+  final prose = content
+      .replaceAll(
+        RegExp(r'^ {0,3}(```|~~~)[\s\S]*?^ {0,3}\1', multiLine: true),
+        '',
+      )
+      .replaceAll(RegExp(r'(`+)[\s\S]*?\1'), 'code');
   final targets = [
-    // Inline links, with or without angle brackets.
+    // Inline links and images, with or without angle brackets; the link
+    // text may hold one level of brackets.
     for (final match in RegExp(
-      r'\[[^\]]*\]\(\s*<?([^)>\s]+)>?[^)]*\)',
-    ).allMatches(content))
+      r'\[(?:[^\[\]]|\[[^\[\]]*\])*\]\(\s*<?([^)>\s]+)>?[^)]*\)',
+    ).allMatches(prose))
       match.group(1)!,
-    // Reference-style link definitions.
+    // Reference-style link definitions; `[^1]:` starts a footnote.
     for (final match in RegExp(
-      r'^ {0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?',
+      r'^ {0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
       multiLine: true,
-    ).allMatches(content))
+    ).allMatches(prose))
       match.group(1)!,
   ];
   for (final raw in targets) {
@@ -789,9 +836,13 @@ Set<String> _checkSkills() {
       );
     }
     for (final key in frontmatter.keys.difference(_skillFields)) {
+      final reason = _rejectedSkillFields[key];
       _fail(
-        '$skillPath: frontmatter "$key" is not an Agent Skills field; '
-        'hosts other than the one it was written for ignore or reject it.',
+        reason == null
+            ? '$skillPath: frontmatter "$key" is not an Agent Skills field; '
+                  'hosts other than the one it was written for ignore or '
+                  'reject it.'
+            : '$skillPath: frontmatter "$key" is not allowed: it $reason.',
       );
     }
     if (frontmatter.end >= 0) {
