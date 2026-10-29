@@ -1315,6 +1315,51 @@ void main() {
       expect(controller.loadStatusOf(lazy), DirectoryLoadStatus.notLoaded);
     });
 
+    test('a long run of restarts completes every future', () async {
+      final loader = FakeLoader<String>();
+      final controller = lazyController(
+        loader,
+        expansion: ExpansionState.withExpanded([r]),
+      )..expand(lazy);
+      await settle();
+      final futures = <Future<void>>[controller.loadChildren(lazy)];
+      final trees = [
+        controller.tree.rebuild((builder) => builder.addFile('/r/a.txt')),
+        controller.tree.rebuild((builder) => builder.addFile('/r/b.txt')),
+      ];
+      // A file watcher without debouncing: every new tree restarts the
+      // open folder's load before the previous one returns.
+      for (var i = 0; i < 20000; i++) {
+        controller.tree = trees[i.isEven ? 0 : 1];
+        if (i % 1000 == 0) futures.add(controller.loadChildren(lazy));
+      }
+      await settle();
+      var done = 0;
+      for (final future in futures) {
+        unawaited(future.then((_) => done++));
+      }
+      loader.complete(lazy, const [TreeEntry.file('/r/lazy/x.txt')]);
+      await settle();
+      expect(done, futures.length);
+      expect(controller.loadStatusOf(lazy), DirectoryLoadStatus.loaded);
+    });
+
+    test('a load discarded before its loader runs never calls it', () async {
+      final loader = FakeLoader<String>();
+      final controller = lazyController(
+        loader,
+        expansion: ExpansionState.withExpanded([r]),
+      )..expand(lazy);
+      controller.updateTree((builder) => builder.addFile('/r/new.txt'));
+      await settle();
+      expect(loader.callsFor(lazy), hasLength(1));
+      final disposed = lazyController(loader);
+      unawaited(disposed.loadChildren(other));
+      disposed.dispose();
+      await settle();
+      expect(loader.callsFor(other), isEmpty);
+    });
+
     test('finishing after dispose does nothing', () async {
       final loader = FakeLoader<String>();
       final controller = lazyController(loader);

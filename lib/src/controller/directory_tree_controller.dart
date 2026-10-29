@@ -1203,10 +1203,10 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// new leaves checked, the directory becomes [DirectoryLoadStatus.loaded]
   /// even when nothing was added, and [lastRowsChange] is a splice at the
   /// directory's rows. With [compactFolders], a directory whose only loaded
-  /// child is a directory now shares its row with it; when the directory
-  /// was expanded, the chain's deepest directory expands in the same
-  /// states, so the row stays open, and starts its own load when it has no
-  /// children. When it fails, the status becomes
+  /// child is a directory now shares its row with it; the chain's deepest
+  /// directory takes the directory's state in both expansion states, so
+  /// the row stays open or closed as it was, and when open it starts its
+  /// own load when it has no children. When it fails, the status becomes
   /// [DirectoryLoadStatus.failed], [loadErrorOf] holds the error, the
   /// directory keeps its expansion and its contents, and the constructor's
   /// `onLoadError` is called. Each outcome notifies once.
@@ -1220,7 +1220,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// The future of a discarded load completes with the next load of the
   /// directory that starts before the discarded one's loader returns (an
   /// open directory loads again right away, see [tree] and
-  /// [reloadChildren]), else when that loader returns.
+  /// [reloadChildren]), else when that loader returns. A load discarded
+  /// before its loader was called never calls it, and its future completes
+  /// at once unless a next load took it over.
   Future<void> loadChildren(NodeId id) {
     if (_loader == null || _disposed) return Future<void>.value();
     final pending = _loads[id];
@@ -1262,8 +1264,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// Returns the running load's future when a load of [id] is in progress
   /// already. The future completes as the one of [loadChildren] does: when
   /// the result is applied, or, when the load is discarded, with the next
-  /// load of the directory. Completes right away without a loader, for
-  /// files, unknown ids, and after [dispose].
+  /// load of the directory that starts before the discarded loader
+  /// returns, else when it returns. Completes right away without a loader,
+  /// for files, unknown ids, and after [dispose].
   Future<void> reloadChildren(NodeId id) {
     if (_loader == null || _disposed) return Future<void>.value();
     final pending = _loads[id];
@@ -1604,8 +1607,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// its own, so a folder the user collapsed during the search stays
   /// collapsed, also inside a collapsed parent. A directory that continued
   /// a compacted chain in [previous] has its row's state (see
-  /// [_keepBrokenRows]): it expands when the row's directory is expanded,
-  /// and otherwise follows the rule for that directory. O(n) with a filter
+  /// [_keepBrokenRows]): it expands when the row's directory was expanded
+  /// in [previous] (also when that directory is gone), and otherwise
+  /// follows the rule for that directory. O(n) with a filter
   /// (one flatten, plus up to two passes over the nodes when matches were
   /// revealed, which never call the filter, and the chains walked from
   /// them), O(rows) without.
@@ -1638,7 +1642,10 @@ class DirectoryTreeController<T> extends ChangeNotifier {
           if (child is! DirectoryNode<T>) break;
           row = child;
         }
-        if (!identical(row, before) && effective.isExpanded(row.id)) continue;
+        // The row's state as it was, also when its directory is gone.
+        if (!identical(row, before) && previous.expansion.isExpanded(row.id)) {
+          continue;
+        }
       }
       passed ??= previous.withExpansion(const ExpansionState.expanded());
       // Only a directory that held a match was one the search opened, so
@@ -1850,13 +1857,13 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// lazy merge or a reload) the statuses of directories that still exist
   /// are kept and the change is the splice between the old and new rows.
   ///
-  /// [open] lists directories of [next] to expand after pruning, in the
-  /// requested and in the effective state (a load that starts a compacted
-  /// chain opens its deepest directory).
+  /// [chainEnd] is a directory of [next] that ends a compacted chain a
+  /// load started, with its state in the requested and in the effective
+  /// state (those of the loaded directory, whose row it now ends).
   void _applyTree(
     DirectoryTree<T> next, {
     required bool discardLoads,
-    ({Set<NodeId> requested, Set<NodeId> effective})? open,
+    ({NodeId id, bool requested, bool effective})? chainEnd,
   }) {
     final previousTree = _tree;
     final previousRows = _rows;
@@ -1868,13 +1875,14 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     _checkCounts = null;
     _setSelection(_selection.prune(next));
     _setChecks(_adoptCheckedLeaves(previousTree, next, _checks.prune(next)));
-    var requested = _requested.prune(next);
+    var requested = _requested;
     var effective = _effectiveFilter == null
         ? requested
-        : previousRows.expansion.prune(next);
+        : previousRows.expansion;
     // A compacted row whose chain breaks keeps the state the row had, shown
     // or not: the directories that stop continuing its chain take the
-    // state of its deepest directory, in both expansion states.
+    // state of its deepest directory, in both expansion states. Before
+    // pruning, so a deleted or moved deepest directory still has its state.
     if (_compactFolders && previousRows.compactFolders) {
       final showRoots = previousRows.showRoots;
       requested = _keepBrokenRows(requested, previousTree, showRoots);
@@ -1882,13 +1890,19 @@ class DirectoryTreeController<T> extends ChangeNotifier {
           ? requested
           : _keepBrokenRows(effective, previousTree, showRoots);
     }
-    // After that rule: a load that starts a chain opens its new deepest
-    // directory, also when that directory left another chain.
-    if (open != null) {
-      requested = requested.expandAll(open.requested);
+    requested = requested.prune(next);
+    effective = _effectiveFilter == null ? requested : effective.prune(next);
+    // After that rule: a load that starts a chain gives the chain's new
+    // deepest directory the state of the loaded directory, also when that
+    // directory left another chain.
+    if (chainEnd != null) {
+      requested = requested.setExpanded(
+        chainEnd.id,
+        expanded: chainEnd.requested,
+      );
       effective = _effectiveFilter == null
           ? requested
-          : effective.expandAll(open.effective);
+          : effective.setExpanded(chainEnd.id, expanded: chainEnd.effective);
     }
     _setRequested(requested);
     if (discardLoads) {
@@ -2223,9 +2237,12 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         // A microtask keeps loader code out of the command that started
         // the load (which notifies first), and turns a synchronous throw
         // into an ordinary failure.
-        final result = await Future<Iterable<TreeEntry<T>>>.microtask(
-          () => loader(directory),
+        // A load discarded (or a controller disposed) before then never
+        // calls the loader.
+        final result = await Future<Iterable<TreeEntry<T>>?>.microtask(
+          () => _isCurrent(directory.id, load) ? loader(directory) : null,
         );
+        if (result == null) return;
         entries = List<TreeEntry<T>>.of(result);
       } on Object catch (error, stackTrace) {
         if (_isCurrent(directory.id, load)) {
@@ -2366,9 +2383,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       }
     }
     // A directory whose only child is now a directory shares its row with
-    // it, and that row reads the chain's deepest directory: open that one
-    // too, so the row the user opened stays open.
-    ({Set<NodeId> requested, Set<NodeId> effective})? open;
+    // it, and that row reads the chain's deepest directory: that one takes
+    // the directory's state, so the row stays open or closed as it was.
+    ({NodeId id, bool requested, bool effective})? chainEnd;
     final loaded = next[id];
     if (!continuedChain &&
         loaded is DirectoryNode<T> &&
@@ -2381,16 +2398,17 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         current = child;
       }
       if (!identical(current, loaded)) {
-        open = (
-          requested: {if (_requested.isExpanded(id)) current.id},
-          effective: {if (_rows.expansion.isExpanded(id)) current.id},
+        chainEnd = (
+          id: current.id,
+          requested: _requested.isExpanded(id),
+          effective: _rows.expansion.isExpanded(id),
         );
       }
     }
     // The listing replaces what was below the directory, and its loads.
     _resetBelow(id);
     _stale.removeWhere((other) => other == id || tree.isAncestor(id, other));
-    _applyTree(next, discardLoads: false, open: open);
+    _applyTree(next, discardLoads: false, chainEnd: chainEnd);
     for (final checkedId in checked) {
       if (_tree[checkedId] is DirectoryNode<T> &&
           _checks.canCheck(_tree, checkedId)) {
@@ -2503,23 +2521,37 @@ final class _PendingLoad {
   // as soon as the result is applied, before loads it started run.
   final Completer<void> _done = Completer<void>.sync();
 
-  // The load that took this one's place after it was discarded: this one
-  // completes with it.
-  _PendingLoad? _next;
+  // Whether a later load of the directory took this discarded one over.
+  bool _continued = false;
+
+  // The discarded loads that complete with this one, kept flat so a long
+  // run of restarts completes in one loop.
+  List<_PendingLoad>? _followers;
 
   /// Completes when the result is applied or discarded, or with the load
-  /// that took this one's place.
+  /// that took this one over.
   Future<void> get future => _done.future;
 
+  /// Makes this discarded load, and the ones that followed it, complete
+  /// with [next].
   void continueWith(_PendingLoad next) {
-    _next = next;
-    unawaited(next.future.then((_) => _complete()));
+    _continued = true;
+    final mine = _followers;
+    _followers = null;
+    (next._followers ??= <_PendingLoad>[])
+      ..add(this)
+      ..addAll(mine ?? const <_PendingLoad>[]);
   }
 
-  /// Called when the loader returned and its result was applied or
-  /// discarded.
+  /// Called when the load ended: its result was applied or discarded.
   void finish() {
-    if (_next == null) _complete();
+    if (_continued) return;
+    final followers = _followers;
+    _followers = null;
+    _complete();
+    for (final follower in followers ?? const <_PendingLoad>[]) {
+      follower._complete();
+    }
   }
 
   void _complete() {

@@ -562,6 +562,123 @@ void main() {
         expectConsistentRows(controller);
       });
 
+      group('a chain whose deepest folder is deleted', () {
+        const lib = NodeId('/r/lib');
+        const src = NodeId('/r/lib/src');
+
+        DirectoryTreeController<int> flattened({
+          required ExpansionState expansion,
+          String query = '',
+        }) => DirectoryTreeController<int>(
+          tree: DirectoryTree<int>.build(const [
+            TreeEntry.file('/r/lib/src/a.dart'),
+            TreeEntry.file('/r/x.txt'),
+          ]),
+          expansion: expansion,
+          compactFolders: true,
+          query: query,
+        );
+
+        test('keeps a match the search showed visible', () {
+          final controller = flattened(
+            expansion: const ExpansionState.collapsed(),
+            query: 'a.dart',
+          );
+          expect(labelsOf(controller.rows), ['r', 'lib/src', 'a.dart']);
+          controller.updateTree(
+            (builder) => builder
+              ..remove('/r/lib/src')
+              ..addFile('/r/lib/a.dart'),
+          );
+          expect(labelsOf(controller.rows), ['r', 'lib', 'a.dart']);
+          expectConsistentRows(controller);
+        });
+
+        test('keeps a moved match visible', () {
+          final controller = flattened(
+            expansion: const ExpansionState.collapsed(),
+            query: 'dart',
+          );
+          controller.updateTree(
+            (builder) => builder
+              ..remove('/r/lib/src')
+              ..addFile('/r/lib/src2/a.dart')
+              ..addFile('/r/lib/b.dart'),
+          );
+          expect(labelsOf(controller.rows), [
+            'r',
+            'lib',
+            'src2',
+            'a.dart',
+            'b.dart',
+          ]);
+          expectConsistentRows(controller);
+        });
+
+        test('keeps an open row open', () {
+          final controller = flattened(
+            expansion: ExpansionState.withExpanded([r, src]),
+          );
+          expect(labelsOf(controller.rows), [
+            'r',
+            'lib/src',
+            'a.dart',
+            'x.txt',
+          ]);
+          controller.updateTree(
+            (builder) => builder
+              ..remove('/r/lib/src')
+              ..addFile('/r/lib/b.dart'),
+          );
+          expect(labelsOf(controller.rows), ['r', 'lib', 'b.dart', 'x.txt']);
+          expectConsistentRows(controller);
+        });
+
+        test('keeps a closed row closed', () {
+          final controller = flattened(
+            expansion: ExpansionState.withCollapsed([src]),
+          );
+          expect(labelsOf(controller.rows), ['r', 'lib/src', 'x.txt']);
+          controller.updateTree(
+            (builder) => builder
+              ..remove('/r/lib/src')
+              ..addFile('/r/lib/b.dart'),
+          );
+          expect(labelsOf(controller.rows), ['r', 'lib', 'x.txt']);
+          expect(controller.isExpanded(lib), isFalse);
+          expectConsistentRows(controller);
+        });
+      });
+
+      test(
+        'a listing of a closed folder that starts a chain keeps it closed',
+        () async {
+          final loader = FakeLoader<int>();
+          const d = NodeId('/r/d');
+          const y = NodeId('/r/d/x/y');
+          final controller = DirectoryTreeController<int>(
+            tree: DirectoryTree<int>.build(const [
+              TreeEntry.file('/r/d/x/y/k.txt'),
+              TreeEntry.file('/r/d/f.txt'),
+              TreeEntry.file('/r/z.txt'),
+            ]),
+            expansion: ExpansionState.withExpanded([r, y]),
+            compactFolders: true,
+            loadChildren: loader.call,
+          );
+          expect(labelsOf(controller.rows), ['r', 'd', 'z.txt']);
+          unawaited(controller.reloadChildren(d));
+          await settle();
+          loader.complete(d, const [
+            TreeEntry.directory('/r/d/x/y'),
+            TreeEntry.file('/r/d/x/g.txt'),
+          ]);
+          await settle();
+          expect(labelsOf(controller.rows), ['r', 'd/x', 'z.txt']);
+          expectConsistentRows(controller);
+        },
+      );
+
       test('a chain that breaks in a state expanded by default', () {
         final controller = DirectoryTreeController<int>(
           tree: DirectoryTree<int>.build(const [

@@ -323,9 +323,9 @@ final class _Run {
     }
   }
 
-  /// A load that leaves an expanded directory with one child directory,
-  /// when it had not started a chain before, expands the deepest directory
-  /// of the new chain.
+  /// A load that leaves a directory with one child directory, when it had
+  /// not started a chain before, gives the deepest directory of the new
+  /// chain the directory's state.
   void modelLoadedChain(_Snapshot before, NodeId id) {
     final tree = controller.tree;
     if (identical(tree, before.tree) || !before.compactFolders) return;
@@ -338,7 +338,7 @@ final class _Run {
         before.tree[old.children.first] is DirectoryNode<int>) {
       return;
     }
-    if (!model.isExpanded(id)) return;
+    final expanded = model.isExpanded(id);
     var current = directory;
     while (current.children.length == 1) {
       final child = tree[current.children.first];
@@ -346,8 +346,8 @@ final class _Run {
       current = child;
     }
     if (!identical(current, directory)) {
-      model = model.expand(current.id);
-      _cover('loaded chain');
+      model = model.setExpanded(current.id, expanded: expanded);
+      _cover(expanded ? 'loaded chain' : 'loaded chain closed');
     }
   }
 
@@ -369,12 +369,15 @@ final class _Run {
 
   /// A tree change prunes the requested state, and every directory that
   /// continued a compacted chain but no longer does takes the state of
-  /// that chain's deepest directory, whether the row showed or not.
+  /// that chain's deepest directory, whether the row showed or not and
+  /// whether that directory still exists or not.
   void modelTreeChange(_Snapshot before) {
     final tree = controller.tree;
     if (identical(tree, before.tree)) return;
-    final pruned = model.prune(tree);
-    var next = pruned;
+    // The chain's deepest directory keeps its state for this rule also when
+    // the change removed it, so the rule reads the state before pruning.
+    final old = model;
+    var next = model.prune(tree);
     if (before.compactFolders && controller.compactFolders) {
       bool continued(TreeNode<int>? node) =>
           node is DirectoryNode<int> &&
@@ -393,8 +396,8 @@ final class _Run {
         while (continued(end)) {
           end = before.tree[end.children.first]! as DirectoryNode<int>;
         }
-        final expanded = pruned.isExpanded(end.id);
-        if (pruned.isExpanded(node.id) == expanded) continue;
+        final expanded = old.isExpanded(end.id);
+        if (old.isExpanded(node.id) == expanded) continue;
         next = next.setExpanded(node.id, expanded: expanded);
         _cover(expanded ? 'chain broke open' : 'chain broke closed');
       }
@@ -542,7 +545,9 @@ final class _Run {
           ]);
         }
         controller.showRoots = !controller.showRoots;
-      case 14:
+      // Tree edits twice as often as other commands: they reach the chain
+      // rules.
+      case 14 || 36:
         final tree = controller.tree;
         final next = tree.rebuild((builder) {
           for (var i = random.nextInt(3); i > 0 && tree.isNotEmpty; i--) {
@@ -574,17 +579,22 @@ final class _Run {
               differing.add(node);
             }
           }
-          if (chains.isNotEmpty && random.nextBool()) {
+          if (chains.isNotEmpty && random.nextInt(4) > 0) {
             final pool = differing.isNotEmpty && random.nextInt(4) > 0
                 ? differing
                 : chains;
             final chain = pool[random.nextInt(pool.length)];
-            builder.add(
-              TreeEntry<int>.file(
-                '${chain.path}/split${nextData++}.txt',
-                data: nextData,
-              ),
-            );
+            if (random.nextInt(3) == 0) {
+              // Delete the next directory of the chain, often its deepest.
+              builder.remove(tree[chain.children.first]!.path.toString());
+            } else {
+              builder.add(
+                TreeEntry<int>.file(
+                  '${chain.path}/split${nextData++}.txt',
+                  data: nextData,
+                ),
+              );
+            }
           }
         });
         log.add('tree = edited (${next.length} nodes)');
