@@ -253,7 +253,7 @@ took a `String` id takes a `NodeId`: get one from `tree.idOf(path)`,
 | `data` | `tree` | Settable: assigning a new tree replaces `rebuild`. `data.nodes[id]` becomes `tree[id]`, `data.nodes.values` becomes `tree.nodes`. |
 | `expansions` | `expansion`, plus the controller's expansion commands | Member by member below. |
 | `selection` | `selection` (`SelectionState`), plus the controller's selection commands | Same name, different type. Member by member below. |
-| `filterQuery` | `query` | Not trimmed, and the syntax grew: globs, quoted phrases, `type:`, `path:`, and `ext:` lists that match files only. A search can be collapsed by the user, and clearing it restores the folders that were open before. |
+| `filterQuery` | `query` | Not trimmed, and the syntax grew: globs, quoted phrases, `type:`, `path:`, and `ext:` lists that match files only. A search can be collapsed by the user, and clearing it restores the folders that were open before, plus the ones that lead to the focused row. |
 | `visibleNodes` | `rows` (`TreeRows<T>`, a `List<TreeRow<T>>`) | See `VisibleNode` below for the fields. |
 | `rebuild(next, tryPreserveState: true)` | `tree = next`, `updateTree((builder) => ...)` | State is always kept by id. A checked leaf that became a folder with children stays checked as a whole, and the focus moves to the nearest surviving ancestor. |
 | `rebuild(next, tryPreserveState: false)` | `tree = next`, then `expansion = const ExpansionState.collapsed()` and `clearSelection()` | |
@@ -356,7 +356,7 @@ to the controller itself.
 | `ExpanderBuilder` | `DirectoryTreeRow(expander: ...)` | See [A custom expander](#a-custom-expander). |
 | `TreeNodeTile` | `DirectoryTreeRow<T>` | |
 | `TreeNodeTile(node: ..., state: ...)` | `DirectoryTreeRow(details: ...)` | |
-| `TreeNodeTile(leading:, title:, trailing:)` | `leading:`, `title:`, `trailing:` | |
+| `TreeNodeTile(leading:, title:, trailing:)` | `leading:`, `title:`, `trailing:` | Inside the tree, the row's semantics node already carries its label: wrap a `title:` that only shows the label again, such as `Text(node.name)`, in `ExcludeSemantics`, or leave `title:` out for the default label. A title with more to say, such as a rename field, keeps its own semantics. |
 | `TreeNodeTile(subtitle: ...)` | Removed | Rows are one line high; see [Subtitles](#subtitles). |
 | `TreeNodeTile(onTap: ..., onDoubleTap: ...)` | The view's `onRowTap` and `onActivate` | The view selects on click and activates on the second click within `kDoubleTapTimeout`, on pointer up; 1.x fired `onTap` on pointer down when `onDoubleTap` was set. |
 | `TreeNodeTile(onTertiaryTap: ...)` | Removed | See [Middle-click](#middle-click). |

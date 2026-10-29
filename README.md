@@ -24,7 +24,8 @@ event, and the view keeps what the user had open, selected, and focused.
   plus tri-state checkboxes kept separately from the selection.
 - Search with globs, quoted phrases, and `ext:`, `type:`, and `path:`
   terms. Matches are revealed and highlighted, and clearing the search
-  closes the folders it opened.
+  closes the folders it opened, except the ones that lead to the focused
+  row.
 - Lazy loading of folder contents, with a loader for the local file system.
 - Context menus, drag and drop onto folders, and a picker dialog.
 - Material 3 defaults, file-type icons, indent guides, a `ThemeExtension`,
@@ -164,8 +165,8 @@ The four kinds of state are independent:
 
 - Expansion: `expand`, `collapse`, `toggleExpansion`, `expandAll`,
   `collapseAll`, `expandSubtree`, `collapseSubtree`, and `reveal` (or
-  `revealPath`), which opens the ancestors of a node and focuses, selects,
-  and scrolls to it.
+  `revealPath`), which opens the ancestors of a node, focuses and scrolls
+  to it, and with `select: true` selects it.
 - Selection, the highlighted rows: `select` (a click), `toggleSelected`
   (Ctrl-click), `extendSelection` (Shift-click), `selectAll`, and
   `clearSelection`. It starts in `SelectionMode.multiple`; set
@@ -206,6 +207,10 @@ print(labels()); // [repo, lib, test, README.md]
 print(ExpansionState.fromJson(saved) == controller.expansion); // true
 ```
 
+Clearing a search while the focus is on a row the search revealed keeps
+the folders that lead to that row open, and adds them to
+`controller.expansion`, so the focused row stays on screen.
+
 Persist `controller.expansion.toJson()` and pass
 `ExpansionState.fromJson(saved)` as the `expansion` of a new controller to
 restore the view. While a search is active, the user can still close the
@@ -229,7 +234,9 @@ partial. Ids that no longer exist are dropped, and the focus moves to the
 nearest surviving ancestor. On screen, the first visible row keeps its
 position, also during a fling or an animated `ensureVisible`, and when the
 row height changes with the text scale. An animation your app starts with
-`ScrollController.animateTo` still ends at the offset it was given.
+`ScrollController.animateTo` still ends at the offset it was given, so on
+its next frame the content moves by the change. The `SliverDirectoryTree`
+documentation lists the other cases where a change moves the content.
 
 ## Search
 
@@ -398,8 +405,8 @@ every key goes to that widget instead.
 
 With `selectionFollowsFocus: false`, the arrows, Home, End, the page keys,
 and type-ahead move the focus without changing the selection, and Space
-toggles the focused row; the picker works this way for a multiple
-selection without checkboxes.
+toggles the focused row; the picker works this way when it picks several
+folders, where each row's checkbox shows the selection.
 
 To change a binding, spread the defaults into a new map and pass it as
 `shortcuts` (`defaultTargetPlatform` comes from
@@ -434,7 +441,7 @@ above the view. `DirectoryTreeKeyboard` documents every intent.
 
 | Input | What happens |
 | --- | --- |
-| Click | Focuses the row, gives the tree keyboard focus, and selects the row. A click on a folder also opens or closes it. |
+| Click | Focuses the row, gives the tree keyboard focus (also when a button or a text field in a row had it), and selects the row. A click on a folder also opens or closes it. |
 | Shift-click | Selects the range from the anchor (the row of the last click without Shift) to this row. |
 | Ctrl-click, or Cmd-click on macOS | Adds the row to the selection or removes it. |
 | Double-click | Activates the row: a folder opens or closes once, then `onActivate` runs. |
@@ -745,10 +752,43 @@ final explorer = DirectoryTreeKeyboard(
 The keyboard widget handles Enter and the sliver handles double-clicks,
 so give both the same `onActivate`. The sliver registers itself with the
 controller, so `ensureVisible`, `reveal`, and Page Up and Page Down scroll
-the right list even with slivers before it. Add a context menu with
-`DirectoryTreeContextMenu` and drag and drop with
-`DirectoryTreeDragAndDropScope` around the scroll view; their
-documentation shows the wiring that `DirectoryTreeView` does for you.
+the right list even with slivers before it.
+
+Put a `DirectoryTreeContextMenu` around the keyboard widget, so that
+Shift+F10 and the context menu key reach it, and open it from the sliver's
+secondary taps with a context below the menu:
+
+```dart
+final withMenu = DirectoryTreeContextMenu(
+  controller: controller,
+  builder: (context, details) => [
+    MenuItemButton(
+      onPressed: () => debugPrint('rename ${details.row.node.path}'),
+      child: const Text('Rename'),
+    ),
+  ],
+  child: DirectoryTreeKeyboard(
+    controller: controller,
+    child: Builder(
+      builder: (context) => CustomScrollView(
+        slivers: [
+          SliverDirectoryTree(
+            controller: controller,
+            onRowSecondaryTap: (row, globalPosition) =>
+                DirectoryTreeContextMenu.maybeOf<Object?>(context)
+                    ?.open(row: row, globalPosition: globalPosition),
+          ),
+        ],
+      ),
+    ),
+  ),
+);
+```
+
+A menu inside the keyboard widget opens only on secondary taps. Drag and
+drop goes around the keyboard widget too, in a
+`DirectoryTreeDragAndDropScope`; the documentation of both shows the rest
+of the wiring that `DirectoryTreeView` does for you.
 
 The controller also works without any of these widgets: `rows` is a
 `List<TreeRow>`, and `lastRowsChange` says which block of rows the last
@@ -758,11 +798,13 @@ update replaced, for a list view of your own.
 
 The controller's commands have these costs, for n nodes in the tree:
 
-- Moving the focus and changing the selection of one row: O(log rows).
-  The view then rebuilds only the rows whose details changed.
+- Moving the focus and selecting one row: O(log rows); a Ctrl-click
+  (`toggleSelected`) adds the size of the selection. The view then
+  rebuilds only the rows whose details changed.
 - Opening or closing one folder: O(log rows + the rows that appear or
-  disappear). The other rows stay the same objects, and the filter is not
-  called again.
+  disappear), plus one copy of the row list and of the expansion state.
+  The other rows stay the same objects, and the filter is not called
+  again.
 - `checkStateOf`: O(n) once after the tree or the checks change, then O(1)
   per row. `toggleChecked` and `setChecked` update those counts for the
   node's subtree and ancestors only.

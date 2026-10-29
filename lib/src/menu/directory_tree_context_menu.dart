@@ -13,12 +13,15 @@ import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 
 /// Shows a Material context menu for the rows of a directory tree.
 ///
-/// Wrap the tree with it: [child] is usually a scroll view with a
-/// `SliverDirectoryTree` under a `DirectoryTreeKeyboard` (whose Shift+F10
-/// and context menu key bindings invoke [OpenTreeContextMenuIntent]). Open
-/// the menu of a row from the row's secondary tap with
-/// [DirectoryTreeContextMenuState.open]; `DirectoryTreeView` does all of this
-/// wiring when it is given a `contextMenuBuilder`.
+/// Wrap the tree's `DirectoryTreeKeyboard` with it: [child] is usually
+/// that keyboard widget around a scroll view with a `SliverDirectoryTree`.
+/// The keyboard's Shift+F10 and context menu key bindings invoke
+/// [OpenTreeContextMenuIntent] from the keyboard's focus, so they reach
+/// this widget only when it is above the keyboard widget; a menu placed
+/// inside it opens only from secondary taps. Open the menu of a row from
+/// the row's secondary tap with [DirectoryTreeContextMenuState.open];
+/// `DirectoryTreeView` does all of this wiring when it is given a
+/// `contextMenuBuilder`.
 ///
 /// [maybeOf] searches the ancestors of the context it is given, so call it
 /// with a context below this widget, such as the one of a [Builder] inside
@@ -37,18 +40,21 @@ import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 ///       child: const Text('Delete'),
 ///     ),
 ///   ],
-///   // The Builder's context is below the menu host, so maybeOf finds it.
-///   child: Builder(
-///     builder: (context) => CustomScrollView(
-///       slivers: [
-///         SliverDirectoryTree<File>(
-///           controller: controller,
-///           onRowSecondaryTap: (row, globalPosition) =>
-///               DirectoryTreeContextMenu.maybeOf<File>(
-///                 context,
-///               )?.open(row: row, globalPosition: globalPosition),
-///         ),
-///       ],
+///   child: DirectoryTreeKeyboard<File>(
+///     controller: controller,
+///     // The Builder's context is below the menu host, so maybeOf finds it.
+///     child: Builder(
+///       builder: (context) => CustomScrollView(
+///         slivers: [
+///           SliverDirectoryTree<File>(
+///             controller: controller,
+///             onRowSecondaryTap: (row, globalPosition) =>
+///                 DirectoryTreeContextMenu.maybeOf<File>(
+///                   context,
+///                 )?.open(row: row, globalPosition: globalPosition),
+///           ),
+///         ],
+///       ),
 ///     ),
 ///   ),
 /// )

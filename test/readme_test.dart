@@ -341,6 +341,30 @@ void main() {
     });
   });
 
+  testWidgets('the sliver menu example opens on Shift+F10 and right clicks', (
+    tester,
+  ) async {
+    final controller = _sampleController(expanded: true);
+    addTearDown(controller.dispose);
+    await tester.pumpWidget(
+      MaterialApp(home: Scaffold(body: _sliverMenuExample(controller))),
+    );
+    await tester.tap(find.text('README.md'));
+    await tester.pump(kDoubleTapTimeout);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f10);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+    expect(find.text('Rename'), findsOneWidget);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+    expect(find.text('Rename'), findsNothing);
+    await tester.tap(find.text('main.dart'), buttons: kSecondaryMouseButton);
+    await tester.pumpAndSettle();
+    expect(find.text('Rename'), findsOneWidget);
+  });
+
   testWidgets('the accessibility example labels the tree and the levels', (
     tester,
   ) async {
@@ -710,6 +734,35 @@ Widget _sliverExample(DirectoryTreeController<Object?> controller) {
     ),
   );
   return explorer;
+}
+
+// README: Composing with slivers, the context menu.
+Widget _sliverMenuExample(DirectoryTreeController<Object?> controller) {
+  final withMenu = DirectoryTreeContextMenu(
+    controller: controller,
+    builder: (context, details) => [
+      MenuItemButton(
+        onPressed: () => debugPrint('rename ${details.row.node.path}'),
+        child: const Text('Rename'),
+      ),
+    ],
+    child: DirectoryTreeKeyboard(
+      controller: controller,
+      child: Builder(
+        builder: (context) => CustomScrollView(
+          slivers: [
+            SliverDirectoryTree(
+              controller: controller,
+              onRowSecondaryTap: (row, globalPosition) =>
+                  DirectoryTreeContextMenu.maybeOf<Object?>(context)
+                      ?.open(row: row, globalPosition: globalPosition),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  return withMenu;
 }
 
 // README: Accessibility.

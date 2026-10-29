@@ -20,7 +20,8 @@ the theme parameters `indent` and `rowHeight` and the re-exported
   `lastRowsChange` says which block of rows changed.
 - Search through `query` (parsed with `TreeQuery`) and `filter`, with
   matches revealed and highlighted. The requested `expansion` leaves out
-  the folders a search opened, so clearing the search restores the view.
+  the folders a search opened, so clearing the search restores the view,
+  except that the folders leading to the focused row stay open.
 - Lazy loading with `loadChildren`, `loadStatusOf`, `loadChildren(id)`,
   and `reloadChildren(id)`, and `FileSystemTreeLoader` in the new
   `package:flutter_directory_tree/io.dart` library, which also re-exports
