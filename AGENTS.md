@@ -155,8 +155,10 @@ run; fix the code, or add an `// ignore:` whose comment says why.
 - Skill facts must match the source. `test/agent_skill_claims_test.dart`
   compiles every 2.x Dart block of the skills (blocks that start with
   `// flutter_directory_tree 1.x` are skipped), requires every API name a
-  skill mentions to have a compiled use in its `_names` map (removed 1.x
-  names go in `_v1Names`, words that are not API names in `_notApi`), and
+  skill mentions, in inline code or in any other fenced block, to have a
+  compiled use in its `_names` map (removed 1.x names go in `_v1Names`,
+  and the use skill may name them only in its "Wrong guess" column or on
+  a line about 1.x; words that are not API names go in `_notApi`), and
   asserts the behavior the skills describe. When a change in `lib/` makes a
   skill wrong, fix the skill and the claims test in the same pull request.
 - `tool/verify_agent_hosts.dart` installs the plugin in throwaway Claude
