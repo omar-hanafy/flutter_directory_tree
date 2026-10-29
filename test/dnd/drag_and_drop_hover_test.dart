@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/dnd/directory_tree_drag_and_drop.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'dnd_test_host.dart';

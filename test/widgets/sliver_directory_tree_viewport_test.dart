@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/widgets/sliver_directory_tree.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'widget_test_utils.dart';

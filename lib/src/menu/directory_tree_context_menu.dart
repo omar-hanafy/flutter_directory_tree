@@ -7,8 +7,8 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_viewport.dart';
+import 'package:flutter_directory_tree/src/keyboard/tree_intents.dart';
 import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart';
-import 'package:flutter_directory_tree/src/menu/open_tree_context_menu_intent.dart';
 
 /// Shows a Material context menu for the rows of a directory tree.
 ///
@@ -291,7 +291,7 @@ class DirectoryTreeContextMenuState<T>
     if (row == null) return;
     _openAt(row, () {
       final index = widget.controller.focusedIndex;
-      final rect = index < 0 ? null : _viewportRowRect(index);
+      final rect = widget.controller.globalRowRect(index);
       if (rect == null || !rect.isFinite) return _centerPlacement();
       final rtl = Directionality.maybeOf(context) == TextDirection.rtl;
       return (position: rtl ? rect.bottomRight : rect.bottomLeft, anchor: rect);
@@ -404,41 +404,6 @@ class DirectoryTreeContextMenuState<T>
     // Like a MenuAnchor inside a scroll view: the anchored row moves away.
     if (notification.direction != ScrollDirection.idle && isOpen) close();
     return false;
-  }
-
-  /// The global bounds of the row at [index] from the first
-  /// [DirectoryTreeViewport] below this widget that has the row laid out.
-  ///
-  /// The controller does not expose the viewports attached to it, so they
-  /// are found in the subtree instead: the [State] or [RenderObject] of a
-  /// view that implements [DirectoryTreeViewport]. The walk is iterative,
-  /// visits the elements in tree order, and does not enter a viewport's own
-  /// subtree (its rows), so it costs about the number of elements around
-  /// the rows. It runs only when the menu opens from the keyboard.
-  Rect? _viewportRowRect(int index) {
-    final pending = <Element>[];
-    final children = <Element>[];
-    void collect(Element child) => children.add(child);
-    context.visitChildElements(collect);
-    pending.addAll(children.reversed);
-    while (pending.isNotEmpty) {
-      final element = pending.removeLast();
-      final DirectoryTreeViewport? viewport = switch (element) {
-        StatefulElement(:final DirectoryTreeViewport state) => state,
-        RenderObjectElement(:final DirectoryTreeViewport renderObject) =>
-          renderObject,
-        _ => null,
-      };
-      if (viewport != null) {
-        final rect = viewport.globalRowRect(index);
-        if (rect != null) return rect;
-        continue;
-      }
-      children.clear();
-      element.visitChildren(collect);
-      pending.addAll(children.reversed);
-    }
-    return null;
   }
 
   /// The center of this widget, as a menu position and a zero-size anchor.

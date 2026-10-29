@@ -52,6 +52,9 @@ final class FakeViewport implements DirectoryTreeViewport {
 
   final List<ShowRowCall> shown = <ShowRowCall>[];
 
+  /// The global bounds this viewport reports per row index.
+  final Map<int, Rect> rects = <int, Rect>{};
+
   @override
   Future<void> showRow(
     int index, {
@@ -68,7 +71,7 @@ final class FakeViewport implements DirectoryTreeViewport {
   }
 
   @override
-  Rect? globalRowRect(int index) => null;
+  Rect? globalRowRect(int index) => rects[index];
 }
 
 /// One pending call of a [FakeLoader].

@@ -2,7 +2,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/search/directory_tree_search_field.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'search_test_utils.dart';

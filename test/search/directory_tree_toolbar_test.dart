@@ -1,7 +1,6 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/search/directory_tree_toolbar.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'search_test_utils.dart';

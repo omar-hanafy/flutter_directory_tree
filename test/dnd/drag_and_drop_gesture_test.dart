@@ -2,8 +2,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/dnd/directory_tree_drag_and_drop.dart';
-import 'package:flutter_directory_tree/src/dnd/directory_tree_drop_details.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'dnd_test_host.dart';

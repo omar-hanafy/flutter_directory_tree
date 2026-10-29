@@ -1,5 +1,4 @@
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'menu_test_utils.dart';

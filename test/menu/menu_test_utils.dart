@@ -2,9 +2,6 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
-import 'package:flutter_directory_tree/src/menu/directory_tree_context_menu.dart';
-import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart';
-import 'package:flutter_directory_tree/src/menu/open_tree_context_menu_intent.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// A sample tree; expanded, its rows are (index: label):

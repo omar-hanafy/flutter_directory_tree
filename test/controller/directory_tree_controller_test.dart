@@ -1071,6 +1071,26 @@ void main() {
         expect(viewport.shown.single.index, 1);
       },
     );
+
+    test('globalRowRect asks the attached viewports in order', () {
+      final controller = sampleController(
+        expansion: ExpansionState.withExpanded([repo]),
+      );
+      expect(controller.globalRowRect(0), isNull);
+      final first = FakeViewport();
+      final second = FakeViewport()
+        ..rects[1] = const Rect.fromLTWH(0, 20, 100, 20)
+        ..rects[2] = const Rect.fromLTWH(0, 40, 100, 20);
+      controller
+        ..attachViewport(first)
+        ..attachViewport(second);
+      first.rects[2] = const Rect.fromLTWH(10, 40, 90, 20);
+      expect(controller.globalRowRect(1), const Rect.fromLTWH(0, 20, 100, 20));
+      expect(controller.globalRowRect(2), const Rect.fromLTWH(10, 40, 90, 20));
+      expect(controller.globalRowRect(0), isNull);
+      expect(controller.globalRowRect(-1), isNull);
+      expect(controller.globalRowRect(controller.rows.length), isNull);
+    });
   });
 
   test('dispose drops viewports', () async {

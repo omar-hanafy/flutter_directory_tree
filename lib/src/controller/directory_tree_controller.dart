@@ -1179,6 +1179,23 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     ]);
   }
 
+  /// The bounds of the row at [index] in global coordinates, from the
+  /// first attached viewport that has that row laid out, or `null`.
+  ///
+  /// Use it to anchor a menu, a tooltip, or a popup to a row, for example
+  /// a context menu for [focusedRow] at
+  /// `globalRowRect(focusedIndex)`. Null when [index] is out of the range
+  /// of [rows], when no viewport is attached, and when the row is scrolled
+  /// out of view. See [DirectoryTreeViewport.globalRowRect].
+  Rect? globalRowRect(int index) {
+    if (index < 0 || index >= _rows.length) return null;
+    for (final viewport in _viewports) {
+      final rect = viewport.globalRowRect(index);
+      if (rect != null) return rect;
+    }
+    return null;
+  }
+
   /// Discards the controller: loads still running are ignored when they
   /// finish, and viewports are released.
   ///
