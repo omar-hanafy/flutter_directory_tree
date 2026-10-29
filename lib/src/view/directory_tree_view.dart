@@ -98,6 +98,7 @@ class DirectoryTreeView<T> extends StatefulWidget {
     this.physics,
     this.showScrollbar = true,
     this.semanticLabel,
+    this.levelSemanticsHint,
     this.emptyBuilder,
   });
 
@@ -202,6 +203,13 @@ class DirectoryTreeView<T> extends StatefulWidget {
   /// A label for the whole tree, read by screen readers before the rows;
   /// none when `null`.
   final String? semanticLabel;
+
+  /// Builds the semantics hint of each row from its level ([TreeRow.depth]
+  /// plus 1); the English `Level 2` when `null`.
+  ///
+  /// Pass a function to localize it. See
+  /// [SliverDirectoryTree.levelSemanticsHint].
+  final String Function(int level)? levelSemanticsHint;
 
   /// Builds what the view shows while there are no rows: an empty tree, or
   /// a search with no matches.
@@ -412,6 +420,7 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
       // With drag and drop a touch long-press belongs to the drag; the
       // scope reports a long-press that never moved instead.
       secondaryTapOnLongPress: dragAndDrop == null,
+      levelSemanticsHint: widget.levelSemanticsHint,
     );
     final padding = widget.padding;
     if (padding != null) {

@@ -1317,10 +1317,37 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       _setRequested(_rows.expansion);
     } else {
       // An id inside a compacted row stands for the row's directory, which
-      // is what the core expanded in the effective state.
-      final target = index < 0 ? id : previous[index].id;
+      // is what the core expanded in the effective state; without a row,
+      // record whichever directory of its chain the core changed.
+      final target = index < 0
+          ? _toggledDirectory(id, previous, _rows)
+          : previous[index].id;
       _setRequested(_requested.setExpanded(target, expanded: expand));
     }
+  }
+
+  /// The directory whose state a toggle of the row-less directory [id]
+  /// changed between [before] and [after].
+  ///
+  /// With [compactFolders], [id] may sit inside a chain of single-directory
+  /// children whose deepest directory decides the chain's row; the core
+  /// acts on that one. The walk goes down the chain from [id] and returns
+  /// the first directory whose state differs in either expansion state, or
+  /// [id] when nothing changed. O(chain length).
+  NodeId _toggledDirectory(NodeId id, TreeRows<T> before, TreeRows<T> after) {
+    var node = _tree[id];
+    while (node is DirectoryNode<T>) {
+      final current = node.id;
+      if (before.expansion.isExpanded(current) !=
+              after.expansion.isExpanded(current) ||
+          before.requestedExpansion.isExpanded(current) !=
+              after.requestedExpansion.isExpanded(current)) {
+        return current;
+      }
+      if (!_compactFolders || node.children.length != 1) break;
+      node = _tree[node.children.first];
+    }
+    return id;
   }
 
   /// Applies [transform] to both expansion states and recomputes the rows

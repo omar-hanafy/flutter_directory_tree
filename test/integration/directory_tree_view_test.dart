@@ -404,6 +404,33 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('levelSemanticsHint localizes the row hints', (tester) async {
+      final handle = tester.ensureSemantics();
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        hostApp(
+          DirectoryTreeView<int>(
+            controller: controller,
+            levelSemanticsHint: (level) => 'Niveau $level',
+          ),
+        ),
+      );
+      expect(
+        tester.getSemantics(rowOf(lib)),
+        matchesSemantics(
+          label: 'lib',
+          hint: 'Niveau 2',
+          isSelected: false,
+          isExpanded: true,
+          hasExpandedState: true,
+          hasSelectedState: true,
+          hasTapAction: true,
+        ),
+      );
+      handle.dispose();
+    });
+
     testWidgets('a new controller takes over the rows', (tester) async {
       final first = expandedController();
       addTearDown(first.dispose);

@@ -868,6 +868,26 @@ void main() {
   });
 
   group('search', () {
+    test('a hidden chain directory toggles the state the core changed', () {
+      final controller = DirectoryTreeController<int>(
+        tree: chainTree(),
+        expansion: ExpansionState.withExpanded([x]),
+        compactFolders: true,
+        query: 'other',
+      );
+      expect(controller.rows.indexOfNode(chainA), -1);
+      controller.expand(chainA);
+      // The requested state records the same directory as the rows' own
+      // requested state, so clearing the search shows what was asked for.
+      expect(controller.expansion, controller.rows.requestedExpansion);
+      controller.query = '';
+      expectConsistentRows(controller);
+      expect(
+        controller.rows.expansion.isExpanded(chainC),
+        controller.expansion.isExpanded(chainC),
+      );
+    });
+
     test('query keeps the raw text and parses it', () {
       final controller = sampleController();
       expect(

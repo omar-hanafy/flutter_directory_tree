@@ -63,6 +63,7 @@ class DirectoryTreePanel<T> extends StatefulWidget {
     this.physics,
     this.showScrollbar = true,
     this.semanticLabel,
+    this.levelSemanticsHint,
     this.emptyBuilder,
   });
 
@@ -157,6 +158,9 @@ class DirectoryTreePanel<T> extends StatefulWidget {
 
   /// See [DirectoryTreeView.semanticLabel].
   final String? semanticLabel;
+
+  /// See [DirectoryTreeView.levelSemanticsHint].
+  final String Function(int level)? levelSemanticsHint;
 
   /// See [DirectoryTreeView.emptyBuilder].
   final WidgetBuilder? emptyBuilder;
@@ -281,6 +285,7 @@ class _DirectoryTreePanelState<T> extends State<DirectoryTreePanel<T>> {
             physics: widget.physics,
             showScrollbar: widget.showScrollbar,
             semanticLabel: widget.semanticLabel,
+            levelSemanticsHint: widget.levelSemanticsHint,
             emptyBuilder: widget.emptyBuilder,
           ),
         ),
