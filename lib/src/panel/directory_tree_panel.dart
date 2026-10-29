@@ -78,8 +78,8 @@ class DirectoryTreePanel<T> extends StatefulWidget {
   /// Ignored when [toolbar] is given.
   final Widget? title;
 
-  /// Widgets after the default toolbar's own buttons, such as an
-  /// [IconButton] that creates a file.
+  /// Widgets the default toolbar shows after the [title] and before its
+  /// own buttons, such as an [IconButton] that creates a file.
   ///
   /// Ignored when [toolbar] is given.
   final List<Widget> actions;
