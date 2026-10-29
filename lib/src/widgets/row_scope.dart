@@ -39,10 +39,13 @@ class RowSemanticsScope extends InheritedWidget {
 /// The tree is the nearest [Focus] above [context] that is not a
 /// [FocusScope], usually the focus node of the tree's keyboard handling.
 /// Nothing happens when there is none, when it cannot take focus, or when
-/// it (or a widget inside it, such as a rename field) already has focus.
+/// it has the primary focus already. A focusable widget inside a row (a
+/// button, a rename field) that has the focus loses it to the tree, so
+/// the tree's keys act and the rows paint as focused; a click inside such
+/// a widget is that widget's own and does not reach the row.
 void requestTreeFocus(BuildContext context) {
   final node = Focus.maybeOf(context, createDependency: false);
-  if (node == null || node.hasFocus || !node.canRequestFocus) return;
+  if (node == null || node.hasPrimaryFocus || !node.canRequestFocus) return;
   node.requestFocus();
 }
 

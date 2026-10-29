@@ -458,7 +458,7 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
     final controller = widget.controller;
     final id = row.id;
     final focusNode = _focusNode;
-    if (!focusNode.hasFocus && focusNode.canRequestFocus) {
+    if (!focusNode.hasPrimaryFocus && focusNode.canRequestFocus) {
       focusNode.requestFocus();
     }
     if (widget.selectOnTap && !controller.isSelected(id)) {
