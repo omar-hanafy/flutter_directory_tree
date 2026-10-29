@@ -642,4 +642,67 @@ void main() {
       expect(counter.details.where((details) => details.isHovered), isEmpty);
     });
   });
+
+  group('touch slop', () {
+    Future<void> pumpWithSlop(
+      WidgetTester tester,
+      DirectoryTreeController<int> controller,
+      double touchSlop, {
+      void Function(TreeRow<int> row, Offset position)? onRowSecondaryTap,
+    }) => tester.pumpWidget(
+      MediaQuery(
+        data: MediaQueryData.fromView(tester.view).copyWith(
+          gestureSettings: DeviceGestureSettings(touchSlop: touchSlop),
+        ),
+        child: treeApp(
+          controller: controller,
+          onRowSecondaryTap: onRowSecondaryTap,
+        ),
+      ),
+    );
+
+    testWidgets("taps and long-presses follow the device's touch slop", (
+      tester,
+    ) async {
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      final secondary = <NodeId>[];
+      await pumpWithSlop(
+        tester,
+        controller,
+        4,
+        onRowSecondaryTap: (row, _) => secondary.add(row.id),
+      );
+      // A sideways move of 10 px is past the device's 4 px slop (and
+      // within the default 18 px): no tap.
+      final tap = await tester.startGesture(
+        tester.getCenter(rowOf(readme)),
+        kind: PointerDeviceKind.touch,
+      );
+      await tap.moveBy(const Offset(10, 0));
+      await tap.up();
+      await tester.pump(kDoubleTapTimeout);
+      expect(controller.selection.isEmpty, isTrue);
+
+      final press = await tester.startGesture(
+        tester.getCenter(rowOf(mainDart)),
+        kind: PointerDeviceKind.touch,
+      );
+      await press.moveBy(const Offset(10, 0));
+      await tester.pump(kLongPressTimeout + kPressTimeout);
+      await press.up();
+      expect(secondary, isEmpty);
+
+      // A larger slop accepts a larger move.
+      await pumpWithSlop(tester, controller, 30);
+      final wide = await tester.startGesture(
+        tester.getCenter(rowOf(readme)),
+        kind: PointerDeviceKind.touch,
+      );
+      await wide.moveBy(const Offset(25, 0));
+      await wide.up();
+      await tester.pump(kDoubleTapTimeout);
+      expect(controller.selection.selected, {readme});
+    });
+  });
 }

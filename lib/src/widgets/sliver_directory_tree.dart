@@ -1399,14 +1399,19 @@ class _RowItemState<T> extends State<_RowItem<T>> {
     _host._handleSecondaryTap(widget.details.row, position, context);
   }
 
-  Map<Type, GestureRecognizerFactory> _gestures({required bool longPress}) {
+  Map<Type, GestureRecognizerFactory> _gestures({
+    required bool longPress,
+    required DeviceGestureSettings? gestureSettings,
+  }) {
+    // Like GestureDetector, the recognizers use the device's touch slop.
     return <Type, GestureRecognizerFactory>{
       TapGestureRecognizer:
           GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
             () => TapGestureRecognizer(debugOwner: this),
             (recognizer) => recognizer
               ..onTapUp = _handleTapUp
-              ..onSecondaryTapUp = _handleSecondaryTapUp,
+              ..onSecondaryTapUp = _handleSecondaryTapUp
+              ..gestureSettings = gestureSettings,
           ),
       if (longPress)
         LongPressGestureRecognizer:
@@ -1417,8 +1422,9 @@ class _RowItemState<T> extends State<_RowItem<T>> {
                   PointerDeviceKind.touch,
                 },
               ),
-              (recognizer) =>
-                  recognizer.onLongPressStart = _handleLongPressStart,
+              (recognizer) => recognizer
+                ..onLongPressStart = _handleLongPressStart
+                ..gestureSettings = gestureSettings,
             ),
     };
   }
@@ -1443,7 +1449,10 @@ class _RowItemState<T> extends State<_RowItem<T>> {
         onPointerDown: _handlePointerDown,
         child: RawGestureDetector(
           behavior: HitTestBehavior.opaque,
-          gestures: _gestures(longPress: config.secondaryTapOnLongPress),
+          gestures: _gestures(
+            longPress: config.secondaryTapOnLongPress,
+            gestureSettings: MediaQuery.maybeGestureSettingsOf(context),
+          ),
           excludeFromSemantics: true,
           child: child,
         ),
