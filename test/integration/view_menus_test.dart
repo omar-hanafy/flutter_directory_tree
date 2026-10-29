@@ -182,9 +182,8 @@ void main() {
       expect(taps.single.$2, tester.getRect(rowOf(readme)).bottomRight);
     });
 
-    testWidgets('a focused row out of view gets the center of the view', (
-      tester,
-    ) async {
+    testWidgets('a focused row out of view is scrolled in and called back '
+        'at its corner once laid out', (tester) async {
       final controller = wideController(300);
       addTearDown(controller.dispose);
       await tester.pumpWidget(view(controller));
@@ -193,8 +192,47 @@ void main() {
       await tester.pump();
       expect(rowOf(wideId(2)), findsNothing);
       expect(await shiftF10(tester), isTrue);
-      final viewRect = tester.getRect(find.byType(DirectoryTreeView<int>));
       expect(taps.single.$1, wideId(2));
+      expect(taps.single.$2, tester.getRect(rowOf(wideId(2))).bottomLeft);
+    });
+
+    testWidgets('an unselected focused row out of view: selected, scrolled '
+        'in, and called back at its corner', (tester) async {
+      final controller = wideController(300);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(view(controller));
+      await click(tester, rowCenter(tester, wideId(2)));
+      await ctrlDown(tester);
+      scrollPositionOf(tester).jumpTo(250 * rowExtent);
+      await tester.pump();
+      expect(await shiftF10(tester), isTrue);
+      expect(taps.single.$1, wideId(3));
+      expect(taps.single.$3, isTrue);
+      expect(taps.single.$2, tester.getRect(rowOf(wideId(3))).bottomLeft);
+    });
+
+    testWidgets('the center of the view when the row cannot be laid out', (
+      tester,
+    ) async {
+      final controller = expandedController();
+      addTearDown(controller.dispose);
+      // No space for rows: nothing is ever laid out.
+      await tester.pumpWidget(
+        hostApp(
+          DirectoryTreeView<int>(
+            controller: controller,
+            autofocus: true,
+            onRowSecondaryTap: (row, position) =>
+                taps.add((row.id, position, false)),
+          ),
+          height: 0,
+        ),
+      );
+      await tester.pump();
+      expect(controller.focusedId, repo);
+      expect(await shiftF10(tester), isTrue);
+      final viewRect = tester.getRect(find.byType(DirectoryTreeView<int>));
+      expect(taps.single.$1, repo);
       expect(taps.single.$2, viewRect.center);
     });
 
@@ -258,6 +296,35 @@ void main() {
       expect(overrides, 1);
       expect(taps, isEmpty);
     });
+  });
+
+  testWidgets('the menu of an unselected focused row out of view opens at '
+      'the row once it is scrolled in', (tester) async {
+    final controller = wideController(300);
+    addTearDown(controller.dispose);
+    final positions = <(NodeId, Offset)>[];
+    await tester.pumpWidget(
+      hostApp(
+        DirectoryTreeView<int>(
+          controller: controller,
+          contextMenuBuilder: (context, details) {
+            positions.add((details.row.id, details.globalPosition));
+            return [
+              MenuItemButton(onPressed: () {}, child: const Text('Item')),
+            ];
+          },
+        ),
+      ),
+    );
+    await click(tester, rowCenter(tester, wideId(2)));
+    await ctrlDown(tester);
+    scrollPositionOf(tester).jumpTo(250 * rowExtent);
+    await tester.pump();
+    expect(await shiftF10(tester), isTrue);
+    await tester.pumpAndSettle();
+    expect(positions.single.$1, wideId(3));
+    expect(positions.single.$2, tester.getRect(rowOf(wideId(3))).bottomLeft);
+    expect(find.text('Item'), findsOneWidget);
   });
 
   testWidgets('selectionFollowsFocus false keeps the selection on arrows', (

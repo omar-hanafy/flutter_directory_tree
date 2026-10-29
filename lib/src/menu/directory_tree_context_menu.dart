@@ -72,11 +72,13 @@ import 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart
 ///   moved it elsewhere.
 /// * One menu at a time: opening a menu while one is open replaces it.
 /// * [OpenTreeContextMenuIntent], invoked from inside [child], opens the
-///   menu of [DirectoryTreeController.focusedRow] with the menu just below
-///   that row (see [DirectoryTreeViewport.globalRowRect]), or at the center
-///   of this widget when the row's bounds are unknown. The action is enabled
-///   only while the controller has a focused row, and an ancestor [Actions]
-///   can override it.
+///   menu of [DirectoryTreeController.focusedRow]. It selects (or focuses)
+///   the row as [selectOnOpen] says, scrolls it into view, and opens the
+///   menu after the next frame just below the row (see
+///   [DirectoryTreeViewport.globalRowRect]), or at the center of this
+///   widget when the row cannot be laid out. The action is enabled only
+///   while the controller has a focused row, and an ancestor [Actions] can
+///   override it.
 ///
 /// The menu shows in the nearest [Overlay]. This widget sizes itself like
 /// [child] and adds no semantics of its own.
@@ -340,16 +342,43 @@ class DirectoryTreeContextMenuState<T>
 
   /// Opens the menu of the focused row below that row, or at the center of
   /// this widget when no viewport knows the row's bounds.
+  ///
+  /// Selecting or focusing the row (as [DirectoryTreeContextMenu.selectOnOpen]
+  /// says) and showing it may scroll, and a row's bounds are known only
+  /// once it is laid out, so the menu opens after the next frame.
   void _openForFocusedRow() {
-    final row = widget.controller.focusedRow;
+    final controller = widget.controller;
+    final row = controller.focusedRow;
     if (row == null) return;
-    _openAt(row, () {
-      final index = widget.controller.focusedIndex;
-      final rect = widget.controller.globalRowRect(index);
-      if (rect == null || !rect.isFinite) return _centerPlacement();
-      final rtl = Directionality.maybeOf(context) == TextDirection.rtl;
-      return (position: rtl ? rect.bottomRight : rect.bottomLeft, anchor: rect);
-    });
+    final id = row.id;
+    if (widget.selectOnOpen && !controller.isSelected(id)) {
+      controller.select(id);
+    } else {
+      unawaited(controller.ensureVisible(id));
+    }
+    SchedulerBinding.instance
+      ..addPostFrameCallback((_) {
+        // Nothing when the host, its controller, or the focus changed in
+        // the meantime.
+        if (!mounted ||
+            !identical(widget.controller, controller) ||
+            controller.focusedId != id) {
+          return;
+        }
+        final current = controller.rows.rowOf(id);
+        if (current != null) _openAt(current, _focusedRowPlacement);
+      }, debugLabel: 'DirectoryTreeContextMenu.openForFocusedRow')
+      ..ensureVisualUpdate();
+  }
+
+  /// Just below the focused row, at its bottom-start corner, or at the
+  /// center of this widget when no viewport has the row laid out.
+  ({Offset position, Rect anchor}) _focusedRowPlacement() {
+    final controller = widget.controller;
+    final rect = controller.globalRowRect(controller.focusedIndex);
+    if (rect == null || !rect.isFinite) return _centerPlacement();
+    final rtl = Directionality.maybeOf(context) == TextDirection.rtl;
+    return (position: rtl ? rect.bottomRight : rect.bottomLeft, anchor: rect);
   }
 
   /// Shows the requested menu, unless it shows already or the previous menu

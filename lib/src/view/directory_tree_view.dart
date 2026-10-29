@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:directory_tree/directory_tree.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
 import 'package:flutter_directory_tree/src/dnd/directory_tree_drag_and_drop.dart';
 import 'package:flutter_directory_tree/src/keyboard/directory_tree_keyboard.dart';
@@ -163,10 +166,12 @@ class DirectoryTreeView<T> extends StatefulWidget {
   ///
   /// Without a [contextMenuBuilder], Shift+F10 and the context menu key call
   /// it too, for the focused row, the same way: with [selectOnTap] the row
-  /// is selected first when it is not selected. The position is the
-  /// bottom-start corner of the row (bottom-left in left-to-right text,
-  /// bottom-right in right-to-left text), or the center of the view when
-  /// the row is not laid out (scrolled out of view). The keys reach the
+  /// is selected first when it is not selected, and the row is scrolled
+  /// into view. The call comes after the next frame, once the row is laid
+  /// out, at the bottom-start corner of the row (bottom-left in
+  /// left-to-right text, bottom-right in right-to-left text), or at the
+  /// center of the view when the row cannot be shown (for example a view
+  /// with no room for rows). The keys reach the
   /// widgets above the view while no row is focused, and an ancestor
   /// [Actions] that maps [OpenTreeContextMenuIntent] replaces this
   /// behavior.
@@ -465,17 +470,48 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
   }
 
   /// Shift+F10 without a menu builder: [DirectoryTreeView.onRowSecondaryTap]
-  /// for the focused row, selected first as a secondary click would, at the
-  /// row's bottom-start corner or the center of the view.
+  /// for the focused row, selected first as a secondary click would and
+  /// scrolled into view, at the row's bottom-start corner or the center of
+  /// the view.
+  ///
+  /// Selecting and showing the row may scroll, and a row's bounds are known
+  /// only once it is laid out, so the callback runs after the next frame.
   void _secondaryTapFromKeyboard() {
-    final callback = widget.onRowSecondaryTap;
     final controller = widget.controller;
     final row = controller.focusedRow;
-    if (callback == null || row == null) return;
+    if (widget.onRowSecondaryTap == null || row == null) return;
     final id = row.id;
-    if (widget.selectOnTap && !controller.isSelected(id)) controller.select(id);
+    if (widget.selectOnTap && !controller.isSelected(id)) {
+      controller.select(id);
+    } else {
+      unawaited(controller.ensureVisible(id));
+    }
+    SchedulerBinding.instance
+      ..addPostFrameCallback(
+        (_) => _secondaryTapAtLaidOutRow(controller, id),
+        debugLabel: 'DirectoryTreeView.secondaryTapFromKeyboard',
+      )
+      ..ensureVisualUpdate();
+  }
+
+  /// Calls [DirectoryTreeView.onRowSecondaryTap] for the row of [id] at its
+  /// bottom-start corner, or at the center of the view when the row is not
+  /// laid out; nothing when the view, its controller, or the focus changed
+  /// in the meantime.
+  void _secondaryTapAtLaidOutRow(
+    DirectoryTreeController<T> controller,
+    NodeId id,
+  ) {
+    final callback = widget.onRowSecondaryTap;
+    if (!mounted ||
+        callback == null ||
+        !identical(widget.controller, controller) ||
+        controller.focusedId != id) {
+      return;
+    }
     final rows = controller.rows;
-    final current = rows.rowOf(id) ?? row;
+    final current = rows.rowOf(id);
+    if (current == null) return;
     final rect = controller.globalRowRect(rows.indexOfNode(id));
     final Offset position;
     if (rect != null && rect.isFinite) {
