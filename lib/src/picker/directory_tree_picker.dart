@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
-import 'package:flutter_directory_tree/src/controller/tree_focus_move.dart';
 import 'package:flutter_directory_tree/src/keyboard/directory_tree_shortcuts.dart';
 import 'package:flutter_directory_tree/src/keyboard/tree_intents.dart';
+import 'package:flutter_directory_tree/src/picker/initial_pick.dart';
 import 'package:flutter_directory_tree/src/search/directory_tree_search_field.dart';
 import 'package:flutter_directory_tree/src/view/directory_tree_view.dart';
 import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.dart';
@@ -91,12 +91,17 @@ Future<List<TreeNode<T>>?> showDirectoryTreePicker<T>({
 ///   whole subtree ([DirectoryTreePickerMode.any]).
 /// * Multiple directories: every row has a checkbox that picks that one
 ///   directory, without its children. Clicks on rows only focus them and
-///   open or close directories, so the arrow keys and clicks never undo a
-///   pick; Space and the checkboxes toggle.
+///   open or close directories, and every key that moves the focus (the
+///   arrows with or without Shift, Home, End, the page keys, Left and
+///   Right, type-ahead) only moves it
+///   ([DirectoryTreeView.selectionFollowsFocus] is false), so moving never
+///   undoes a pick; Space and the checkboxes toggle.
 ///
 /// The picker owns its state, built from [tree], [initialSelection], and
 /// [initialExpansion] when it is created; later changes of those two
 /// initial values are ignored, while a new [tree] keeps the state by id.
+/// Building the initial state costs O(n + k log k) for n nodes and k
+/// initial picks.
 /// Escape is left to the widgets around the picker (in a dialog, it
 /// closes the dialog).
 ///
@@ -122,7 +127,11 @@ class DirectoryTreePicker<T> extends StatefulWidget {
   /// The nodes to pick from.
   ///
   /// A new tree keeps the current pick, expansion, and focus by [NodeId]
-  /// and drops the ids it no longer contains.
+  /// and drops the ids it no longer contains. The pick is then computed
+  /// from the new tree (a checked directory that gained a file, for
+  /// example, now stands for its checked files only), and [onChanged]
+  /// reports it when it differs from the previous pick by [TreeNode.==],
+  /// which also compares the nodes' data.
   final DirectoryTree<T> tree;
 
   /// Which nodes can be picked; [DirectoryTreePickerMode.files] by default.
@@ -166,7 +175,9 @@ class DirectoryTreePicker<T> extends StatefulWidget {
   /// received is always the current pick.
   ///
   /// The list is unmodifiable, in display order (pre-order), and empty when
-  /// nothing valid is picked. It may call `setState`: changes that happen
+  /// nothing valid is picked. The pick is computed once per change of the
+  /// selection, the checks, or [tree], in O(k log k) for k picked nodes;
+  /// focus moves and scrolling never compute it. It may call `setState`: changes that happen
   /// while the widgets build (a new [tree] or [mode]) are reported after
   /// the frame.
   final ValueChanged<List<TreeNode<T>>>? onChanged;
@@ -229,15 +240,17 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
   late _PickStyle _style;
   final FocusNode _treeFocusNode = FocusNode(debugLabel: 'DirectoryTreePicker');
 
-  // The pick and the state it was computed from: the pick is computed
-  // again only when that state changes, not on every focus move.
+  // The pick and the state it was computed from (the selection or checks,
+  // and the tree): the pick is computed again only when that state
+  // changes, not on every focus move.
   List<TreeNode<T>> _pick = const [];
   SelectionState? _pickSource;
+  DirectoryTree<T>? _pickTree;
   bool _reportScheduled = false;
 
   // The key bindings of the last build and what they were made for.
   Map<ShortcutActivator, Intent>? _shortcuts;
-  (TargetPlatform, TextDirection, _PickStyle)? _shortcutsKey;
+  (TargetPlatform, TextDirection)? _shortcutsKey;
 
   @override
   void initState() {
@@ -245,6 +258,7 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
     _style = _styleOf(widget);
     _controller = _createController();
     _pickSource = _currentPickSource;
+    _pickTree = _controller.tree;
     _pick = _computePick();
     _controller.addListener(_handleControllerChanged);
     if (_pick.isNotEmpty) {
@@ -294,6 +308,8 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
         : _PickStyle.checks;
   }
 
+  /// A controller with the initial pick, its nodes revealed, built in one
+  /// pass (see [revealPicks] and [checkPicks]).
   DirectoryTreeController<T> _createController({ExpansionState? expansion}) {
     final tree = widget.tree;
     final mode = widget.mode;
@@ -304,13 +320,13 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
       picks.add(id);
       if (_style == _PickStyle.single) break;
     }
-    var startExpansion =
-        expansion ??
-        widget.initialExpansion ??
-        ExpansionState.withExpanded(tree.roots);
-    for (final id in picks) {
-      startExpansion = startExpansion.reveal(tree, id);
-    }
+    final startExpansion = revealPicks(
+      tree,
+      picks,
+      expansion ??
+          widget.initialExpansion ??
+          ExpansionState.withExpanded(tree.roots),
+    );
     switch (_style) {
       case _PickStyle.single:
       case _PickStyle.selectionBoxes:
@@ -329,15 +345,12 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
       case _PickStyle.checks:
         // The checks are the pick, so nothing is ever highlighted: clicks
         // and arrow keys only move the focus.
-        final controller = DirectoryTreeController<T>(
+        return DirectoryTreeController<T>(
           tree: tree,
           expansion: startExpansion,
+          checks: checkPicks(tree, picks),
           selectable: (_) => false,
         );
-        for (final id in picks) {
-          controller.setChecked(id, checked: true);
-        }
-        return controller;
     }
   }
 
@@ -359,11 +372,18 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
 
   void _handleControllerChanged() {
     final source = _currentPickSource;
-    if (identical(source, _pickSource)) return;
+    final tree = _controller.tree;
+    // The pick depends on the tree too: a new tree may keep the selection
+    // object but hold other nodes for its ids.
+    if (identical(source, _pickSource) && identical(tree, _pickTree)) return;
     _pickSource = source;
+    _pickTree = tree;
     final pick = _computePick();
-    if (_samePick(pick, _pick)) return;
+    final same = _samePick(pick, _pick);
+    // Equal nodes of a new tree still replace the old ones, which the
+    // confirm button returns.
     _pick = pick;
+    if (same) return;
     if (SchedulerBinding.instance.schedulerPhase ==
         SchedulerPhase.persistentCallbacks) {
       // A change made while the widgets build (a new tree or mode from
@@ -384,10 +404,12 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
     });
   }
 
+  /// Whether [a] and [b] hold equal nodes ([TreeNode.==], which compares
+  /// the data and the child ids too) in the same order.
   static bool _samePick(List<Object?> a, List<Object?> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
-      if (!identical(a[i], b[i])) return false;
+      if (a[i] != b[i]) return false;
     }
     return true;
   }
@@ -407,29 +429,18 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
   }
 
   /// The tree's key bindings: the defaults without Escape, so it reaches
-  /// the dialog, and for selection checkboxes arrow keys that only move the
-  /// focus, so moving never replaces the pick.
+  /// the dialog.
   Map<ShortcutActivator, Intent> _shortcutsFor(BuildContext context) {
-    final key = (defaultTargetPlatform, Directionality.of(context), _style);
+    final key = (defaultTargetPlatform, Directionality.of(context));
     final cached = _shortcuts;
     if (cached != null && key == _shortcutsKey) return cached;
     final defaults = DirectoryTreeShortcuts.defaults(
       platform: key.$1,
       textDirection: key.$2,
     );
-    final keepSelection = _style == _PickStyle.selectionBoxes;
     final shortcuts = <ShortcutActivator, Intent>{
       for (final MapEntry(:key, :value) in defaults.entries)
-        if (value is! ClearTreeSelectionIntent)
-          key:
-              keepSelection &&
-                  value is MoveTreeFocusIntent &&
-                  value.selection == TreeSelectionUpdate.replace
-              ? MoveTreeFocusIntent(
-                  value.move,
-                  selection: TreeSelectionUpdate.keep,
-                )
-              : value,
+        if (value is! ClearTreeSelectionIntent) key: value,
     };
     _shortcutsKey = key;
     return _shortcuts = shortcuts;
@@ -453,19 +464,23 @@ class _DirectoryTreePickerState<T> extends State<DirectoryTreePicker<T>> {
       focusNode: treeFocusNode,
       autofocus: widget.autofocus,
       shortcuts: _shortcutsFor(context),
+      // Selection checkboxes are picks: moving must never undo one.
+      selectionFollowsFocus: style != _PickStyle.selectionBoxes,
     );
-    if (!widget.showSearch) return view;
+    // The same structure with or without the search field, so that showing
+    // or hiding it keeps the view's state (scroll position, focus).
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: DirectoryTreeSearchField(
-            controller: _controller,
-            treeFocusNode: treeFocusNode,
-            hintText: widget.searchHintText,
+        if (widget.showSearch)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: DirectoryTreeSearchField(
+              controller: _controller,
+              treeFocusNode: treeFocusNode,
+              hintText: widget.searchHintText,
+            ),
           ),
-        ),
         Expanded(child: view),
       ],
     );
@@ -502,19 +517,24 @@ class _DirectoryTreePickerDialog<T> extends StatefulWidget {
 
 class _DirectoryTreePickerDialogState<T>
     extends State<_DirectoryTreePickerDialog<T>> {
-  // The picker reports its initial pick after the first frame; until then
-  // only whether there is one matters, for the confirm button.
-  late List<TreeNode<T>> _pick = const [];
+  final GlobalKey<_DirectoryTreePickerState<T>> _pickerKey =
+      GlobalKey<_DirectoryTreePickerState<T>>();
+
+  // Whether the pick is not empty, for the confirm button. The picker
+  // reports its initial pick only after the first frame, so the first
+  // frame decides from the initial selection: any id of the tree that the
+  // mode accepts is picked. O(initial selection) at most, once.
   late bool _hasPick = widget.initialSelection.any((id) {
     final node = widget.tree[id];
     return node != null && _accepts(widget.mode, node);
   });
 
+  /// The picker's current pick, which exists from its first build on.
+  List<TreeNode<T>> get _pick =>
+      _pickerKey.currentState?._pick ?? const <Never>[];
+
   void _handleChanged(List<TreeNode<T>> pick) {
-    setState(() {
-      _pick = pick;
-      _hasPick = pick.isNotEmpty;
-    });
+    setState(() => _hasPick = pick.isNotEmpty);
   }
 
   void _confirm(List<TreeNode<T>> pick) {
@@ -532,6 +552,7 @@ class _DirectoryTreePickerDialogState<T>
         width: 520,
         height: 440,
         child: DirectoryTreePicker<T>(
+          key: _pickerKey,
           tree: widget.tree,
           mode: widget.mode,
           multiple: widget.multiple,
@@ -550,9 +571,7 @@ class _DirectoryTreePickerDialogState<T>
           child: Text(localizations.cancelButtonLabel),
         ),
         FilledButton(
-          onPressed: _hasPick && _pick.isNotEmpty
-              ? () => _confirm(_pick)
-              : null,
+          onPressed: _hasPick ? () => _confirm(_pick) : null,
           child: Text(widget.confirmLabel ?? localizations.okButtonLabel),
         ),
       ],
