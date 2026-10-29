@@ -59,6 +59,11 @@ const List<Type> exportedTypes = <Type>[
   // Search and toolbar
   DirectoryTreeSearchField,
   DirectoryTreeToolbar,
+  // Composition
+  DirectoryTreeView<Object?>,
+  DirectoryTreePanel<Object?>,
+  DirectoryTreePicker<Object?>,
+  DirectoryTreePickerMode,
   // Core.
   CheckState,
   DirectoryNode<Object?>,

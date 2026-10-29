@@ -83,12 +83,15 @@ export 'package:flutter_directory_tree/src/keyboard/directory_tree_shortcuts.dar
 export 'package:flutter_directory_tree/src/keyboard/tree_intents.dart';
 export 'package:flutter_directory_tree/src/menu/directory_tree_context_menu.dart';
 export 'package:flutter_directory_tree/src/menu/directory_tree_menu_details.dart';
+export 'package:flutter_directory_tree/src/panel/directory_tree_panel.dart';
+export 'package:flutter_directory_tree/src/picker/directory_tree_picker.dart';
 export 'package:flutter_directory_tree/src/rendering/directory_tree_indent_guides.dart';
 export 'package:flutter_directory_tree/src/rendering/directory_tree_label.dart';
 export 'package:flutter_directory_tree/src/search/directory_tree_search_field.dart';
 export 'package:flutter_directory_tree/src/search/directory_tree_toolbar.dart';
 export 'package:flutter_directory_tree/src/theme/directory_tree_icon_set.dart';
 export 'package:flutter_directory_tree/src/theme/directory_tree_theme.dart';
+export 'package:flutter_directory_tree/src/view/directory_tree_view.dart';
 export 'package:flutter_directory_tree/src/widgets/directory_tree_checkbox.dart';
 export 'package:flutter_directory_tree/src/widgets/directory_tree_expander.dart';
 export 'package:flutter_directory_tree/src/widgets/directory_tree_row.dart';
