@@ -701,9 +701,13 @@ void main() {
       await pumpEventQueue();
       expect(pending['/root'], hasLength(3));
       expect(controller.loadStatusOf(root), DirectoryLoadStatus.loading);
-      pending['/root']![1].complete(const []); // the discarded listing
+      // The discarded listing still answers after the restart: its result
+      // is ignored, and it neither completes nor clears the newer load.
+      pending['/root']![1].complete([TreeEntry.file('/root/stale.txt')]);
       await pumpEventQueue();
       expect(reloaded, isFalse);
+      expect(controller.loadStatusOf(root), DirectoryLoadStatus.loading);
+      expect(controller.tree.nodeAt('/root/stale.txt'), isNull);
       pending['/root']!.last.complete([
         TreeEntry.directory('/root/a'),
         TreeEntry.file('/root/y.txt'),
@@ -741,7 +745,15 @@ void main() {
           File('$_useSkill/references/api-quick-reference.md')
               .readAsStringSync(),
         ),
-        contains('completes with the load that starts again in its place'),
+        allOf(
+          contains(
+            'completes with the next load of the same folder that starts '
+            'before the discarded loader returns',
+          ),
+          contains(
+            'must not let the earlier call clear or answer the newer one',
+          ),
+        ),
       );
     });
 
@@ -836,6 +848,34 @@ void main() {
       expect(
         reference,
         contains('takes the state of the chain\'s deepest folder'),
+      );
+    });
+
+    test('during a search, a folder that leaves a compacted chain stays '
+        'collapsed when the user collapsed its row', () {
+      final controller = DirectoryTreeController<Object?>(
+        tree: DirectoryTree.fromPaths(['/r/lib/src/a.dart', '/r/x.txt']),
+        expansion: const ExpansionState.expanded(),
+        compactFolders: true,
+        query: 'a.dart',
+      );
+      addTearDown(controller.dispose);
+      final lib = controller.tree.idOf('/r/lib')!;
+      expect(controller.rows.rowOf(lib)!.label, 'lib/src');
+      final src = controller.rows.rowOf(lib)!.id; // the row's id: src
+      controller.collapse(lib); // the user closes the row that held a match
+      expect(controller.isExpanded(src), isFalse);
+      expect(controller.isExpanded(lib), isTrue); // lib's own state differs
+
+      controller.updateTree((builder) => builder.addFile('/r/lib/b.dart'));
+      expect(controller.rows.rowOf(lib)!.label, 'lib');
+      expect(controller.isExpanded(lib), isFalse);
+      final reference = _normalize(
+        File('$_useSkill/references/api-quick-reference.md').readAsStringSync(),
+      );
+      expect(
+        reference,
+        contains('a row that held a match and that the user collapsed stays'),
       );
     });
 

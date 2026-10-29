@@ -68,7 +68,12 @@ Enums: `TreeFocusMove` (`next`, `previous`, `first`, `last`, `parent`,
 `loaded`, `failed`).
 
 `typedef DirectoryChildrenLoader<T> = Future<Iterable<TreeEntry<T>>>
-Function(DirectoryNode<T> directory)`;
+Function(DirectoryNode<T> directory)`. The controller applies the result
+of at most one call per folder at a time, but a call it discarded (a new
+tree, or a reloaded ancestor's listing arrived first) may still run when it
+calls the loader again for that folder. The discarded result is ignored, so
+a loader may cancel that call; one that keeps request state per folder must
+not let the earlier call clear or answer the newer one.
 `typedef DirectoryLoadErrorCallback = void Function(NodeId directory,
 Object error, StackTrace stackTrace)`.
 
@@ -123,12 +128,15 @@ void watchRows(DirectoryTreeController<Object?> controller) {
   failed, or a reload above it kept its contents) stays marked and is
   listed on its next expand.
 - The future of a discarded load (from `loadChildren` or
-  `reloadChildren`) completes with the load that starts again in its
-  place, by a new tree or a listing above it, else when its loader
-  returns. It never completes with an error.
+  `reloadChildren`) completes with the next load of the same folder that
+  starts before the discarded loader returns (an open folder loads again
+  at once), else when that loader returns; in a compacted row each folder
+  follows its own load. It never completes with an error.
 - With `compactFolders`, a folder that stops continuing a compacted chain
   (for example its only child folder gets a sibling) takes the state of
-  the chain's deepest folder, open or closed, shown or not.
+  the chain's deepest folder, open or closed, shown or not. During a search
+  with `revealMatches` it counts as the chain's row, so a row that held a
+  match and that the user collapsed stays collapsed.
 - A compacted row's `loadStatus` is `loading` while any folder above its
   node in the row loads and `failed` when one of those loads failed.
 
