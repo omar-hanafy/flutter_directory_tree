@@ -108,24 +108,29 @@ jobs:
       # loads, and flutter test has no load timeout, so the run waits with no
       # test running. Only that timeout (exit 124, or 137 when the tool
       # ignores the stop) runs the suite again, and only when no test failed
-      # before it; a failing test fails the step.
+      # before it; a failing test fails the step. The expanded reporter marks
+      # failures with [E] (on GitHub Actions the default reporter does not).
       - name: Test compiled to WebAssembly (Chrome)
         shell: bash
         run: |
+          log="$RUNNER_TEMP/wasm-test.log"
           for attempt in 1 2 3; do
             status=0
-            timeout -k 30 480 flutter test --platform chrome --wasm 2>&1 \
-              | tee "$RUNNER_TEMP/wasm-test.log" || status=$?
+            timeout -k 30 480 flutter test --platform chrome --wasm \
+              --reporter expanded 2>&1 | tee "$log" || status=$?
             if [ "$status" -ne 124 ] && [ "$status" -ne 137 ]; then
               exit "$status"
             fi
-            if grep -qF '[E]' "$RUNNER_TEMP/wasm-test.log"; then
+            if grep -qF -e '[E]' -e '(failed)' "$log"; then
               echo "::error::A test failed before the Wasm suite stopped."
               exit 1
             fi
-            echo "::warning::The Wasm suite stopped while loading (attempt $attempt); running it again."
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::The Wasm suite stopped while loading (attempt $attempt); running it again."
+            fi
           done
-          exit 124
+          echo "::error::The Wasm suite stopped while loading in all 3 attempts."
+          exit "$status"
 
       # The root steps already resolve and analyze example/; these name the
       # example as its own package, the way users build it.
