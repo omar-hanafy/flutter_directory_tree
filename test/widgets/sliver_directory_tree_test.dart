@@ -606,9 +606,11 @@ void main() {
         final controller = expandedController()..collapse(src);
         addTearDown(controller.dispose);
         await tester.pumpWidget(treeApp(controller: controller));
+        // Web screen readers get no custom actions.
         final voiceOver =
-            defaultTargetPlatform == TargetPlatform.iOS ||
-            defaultTargetPlatform == TargetPlatform.macOS;
+            !kIsWeb &&
+            (defaultTargetPlatform == TargetPlatform.iOS ||
+                defaultTargetPlatform == TargetPlatform.macOS);
         final expand = customAction(tester, src, 'Expand');
         final collapse = customAction(tester, lib, 'Collapse');
         expect(expand != null, voiceOver);
