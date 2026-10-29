@@ -185,6 +185,12 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   // of an ancestor, and dispose drop entries, which discards those loads.
   final Map<NodeId, _PendingLoad> _loads = <NodeId, _PendingLoad>{};
 
+  // Discarded loads whose loaders still run, per directory. Each completes
+  // with the next load of its directory that starts before its loader
+  // returns, else when its loader returns.
+  final Map<NodeId, List<_PendingLoad>> _discarded =
+      <NodeId, List<_PendingLoad>>{};
+
   // Directories with contents that wait to be listed again: a reload of an
   // ancestor kept their contents because its listing returned them without
   // contents (a loader that lists one level), or a new tree discarded or
@@ -237,8 +243,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///   again at once when it is open (in either expansion state, also
   ///   while the filter hides it), else the next time it is expanded:
   ///   without children, so it never stays open and empty, and with
-  ///   children when the load was a [reloadChildren]; the future of the
-  ///   discarded load completes with the new one. In a compacted row only
+  ///   children when the load was a [reloadChildren]. The future of a
+  ///   discarded load completes as [loadChildren] describes. In a compacted
+  ///   row only
   ///   the outermost directory that needs a load loads, since its listing
   ///   lists the others again. A directory with children that was waiting
   ///   to be listed again (its reload was discarded or failed, or a reload
@@ -248,10 +255,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// * While filtering with [revealMatches], the matches stay revealed. A
   ///   directory that held a match keeps its effective state, so a folder
   ///   the user collapsed during the search stays collapsed, also inside a
-  ///   collapsed parent. The other ancestors of matches expand in the
-  ///   effective state: new directories, directories that held no match
-  ///   before (also one shown only because its own name matched), and
-  ///   directories that stopped continuing a compacted chain.
+  ///   collapsed parent; a directory that stopped continuing a compacted
+  ///   chain counts as the chain's row here. The other ancestors of matches
+  ///   expand in the effective state: new directories, and directories that
+  ///   held no match before (also one shown only because its own name
+  ///   matched).
   /// * [rows] are flattened again and [lastRowsChange] is a reset.
   ///
   /// Listeners are notified once. Runs in O(rows) plus the size of the
@@ -260,23 +268,25 @@ class DirectoryTreeController<T> extends ChangeNotifier {
 
   set tree(DirectoryTree<T> value) {
     if (identical(value, _tree)) return;
-    final interrupted = Map<NodeId, _PendingLoad>.of(_loads);
+    final interrupted = List<NodeId>.of(_loads.keys);
     _applyTree(value, discardLoads: true);
     // An open directory whose load was discarded loads again, also while
     // the filter hides it. A directory inside a compacted row is open when
     // the row is, and the row loads its outermost directory that needs it,
     // whose listing lists the others again.
-    final restarts = <NodeId, List<_PendingLoad>>{};
-    for (final MapEntry(key: id, value: load) in interrupted.entries) {
+    // Every target is found before any load starts, since a running load
+    // no longer needs one.
+    final restarts = <NodeId, DirectoryNode<T>>{};
+    for (final id in interrupted) {
       final directory = _tree[id];
       if (directory is! DirectoryNode<T>) continue;
       final row = _chainEnd(directory);
       if (!_isOpen(row.id)) continue;
       final target = _outermostLoad(row);
-      if (target != null) (restarts[target.id] ??= <_PendingLoad>[]).add(load);
+      if (target != null) restarts[target.id] = target;
     }
-    for (final MapEntry(key: id, value: loads) in restarts.entries) {
-      unawaited(_startLoad(_tree[id]! as DirectoryNode<T>, replacing: loads));
+    for (final target in restarts.values) {
+      unawaited(_startLoad(target));
     }
     _loadHiddenRoots();
     _commit();
@@ -1206,10 +1216,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// error. It completes right away without a loader, for files, unknown
   /// ids, loaded directories, and after [dispose]. A load is discarded,
   /// without a notification, when [tree] is set or the listing of a
-  /// reloaded ancestor arrives before it finishes, and after [dispose];
-  /// its future completes when its loader returns, or, when the directory
-  /// loads again right away (an open directory, see [tree] and
-  /// [reloadChildren]), with that load.
+  /// reloaded ancestor arrives before it finishes, and after [dispose].
+  /// The future of a discarded load completes with the next load of the
+  /// directory that starts before the discarded one's loader returns (an
+  /// open directory loads again right away, see [tree] and
+  /// [reloadChildren]), else when that loader returns.
   Future<void> loadChildren(NodeId id) {
     if (_loader == null || _disposed) return Future<void>.value();
     final pending = _loads[id];
@@ -1250,9 +1261,9 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///
   /// Returns the running load's future when a load of [id] is in progress
   /// already. The future completes as the one of [loadChildren] does: when
-  /// the result is applied, or with the load that starts again in its
-  /// place. Completes right away without a loader, for files, unknown ids,
-  /// and after [dispose].
+  /// the result is applied, or, when the load is discarded, with the next
+  /// load of the directory. Completes right away without a loader, for
+  /// files, unknown ids, and after [dispose].
   Future<void> reloadChildren(NodeId id) {
     if (_loader == null || _disposed) return Future<void>.value();
     final pending = _loads[id];
@@ -1341,6 +1352,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   void dispose() {
     _disposed = true;
     _loads.clear();
+    _discarded.clear();
     _stale.clear();
     _viewports.clear();
     super.dispose();
@@ -1585,15 +1597,18 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   ///
   /// While filtering with [revealMatches], the ancestors of matches whose
   /// state [previous] never consulted expand, so the matches stay visible:
-  /// new directories, directories that continued a compacted chain or were
-  /// hidden roots, and directories that held no match in [previous]
-  /// (hidden by its filter, or shown only because their own name matched).
-  /// Every directory that held a match in [previous] keeps its state from
-  /// [effective], with or without a row of its own, so a folder the user
-  /// collapsed during the search stays collapsed, also inside a collapsed
-  /// parent. O(n) with a filter (one flatten, plus up to two passes over
-  /// the nodes when matches were revealed, which never call the filter),
-  /// O(rows) without.
+  /// new directories, directories that were hidden roots, and directories
+  /// that held no match in [previous] (hidden by its filter, or shown only
+  /// because their own name matched). Every directory that held a match in
+  /// [previous] keeps its state from [effective], with or without a row of
+  /// its own, so a folder the user collapsed during the search stays
+  /// collapsed, also inside a collapsed parent. A directory that continued
+  /// a compacted chain in [previous] has its row's state (see
+  /// [_keepBrokenRows]): it expands when the row's directory is expanded,
+  /// and otherwise follows the rule for that directory. O(n) with a filter
+  /// (one flatten, plus up to two passes over the nodes when matches were
+  /// revealed, which never call the filter, and the chains walked from
+  /// them), O(rows) without.
   TreeRows<T> _restructured(TreeRows<T> previous, ExpansionState effective) {
     if (_effectiveFilter == null || !_revealMatches) {
       return _flatten(effective, expandMatches: false);
@@ -1614,15 +1629,21 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       final before = previousTree[id];
       if (before is! DirectoryNode<T>) continue;
       if (!previous.showRoots && before.isRoot) continue;
-      if (previous.compactFolders &&
-          before.children.length == 1 &&
-          previousTree[before.children.first] is DirectoryNode<T>) {
-        continue;
+      // A directory that continued a compacted chain has the state of the
+      // chain's row (see _keepBrokenRows), so the row's directory decides.
+      var row = before;
+      if (previous.compactFolders) {
+        while (row.children.length == 1) {
+          final child = previousTree[row.children.first];
+          if (child is! DirectoryNode<T>) break;
+          row = child;
+        }
+        if (!identical(row, before) && effective.isExpanded(row.id)) continue;
       }
       passed ??= previous.withExpansion(const ExpansionState.expanded());
       // Only a directory that held a match was one the search opened, so
       // only then is its collapsed state a choice to keep.
-      if (!_heldMatch(passed, id)) continue;
+      if (!_heldMatch(passed, row.id)) continue;
       (kept ??= <NodeId>[]).add(id);
     }
     return kept == null
@@ -1851,12 +1872,6 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     var effective = _effectiveFilter == null
         ? requested
         : previousRows.expansion.prune(next);
-    if (open != null) {
-      requested = requested.expandAll(open.requested);
-      effective = _effectiveFilter == null
-          ? requested
-          : effective.expandAll(open.effective);
-    }
     // A compacted row whose chain breaks keeps the state the row had, shown
     // or not: the directories that stop continuing its chain take the
     // state of its deepest directory, in both expansion states.
@@ -1866,6 +1881,14 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       effective = _effectiveFilter == null
           ? requested
           : _keepBrokenRows(effective, previousTree, showRoots);
+    }
+    // After that rule: a load that starts a chain opens its new deepest
+    // directory, also when that directory left another chain.
+    if (open != null) {
+      requested = requested.expandAll(open.requested);
+      effective = _effectiveFilter == null
+          ? requested
+          : effective.expandAll(open.effective);
     }
     _setRequested(requested);
     if (discardLoads) {
@@ -1887,11 +1910,16 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         ..addAll(relist.where((id) => _hasContents(next, id)));
       _statusOverrides.clear();
       _loadErrors.clear();
+      _discard(_loads.entries);
       _loads.clear();
     } else {
       _stale.removeWhere((id) => !next.contains(id));
       _statusOverrides.removeWhere((id, _) => !next.contains(id));
       _loadErrors.removeWhere((id, _) => !next.contains(id));
+      _discard([
+        for (final entry in _loads.entries)
+          if (!next.contains(entry.key)) entry,
+      ]);
       _loads.removeWhere((id, _) => !next.contains(id));
     }
     final rows = _restructured(previousRows, effective);
@@ -2171,14 +2199,12 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   }
 
   /// Marks [directory] as loading and schedules its loader; the caller
-  /// commits. The discarded loads it [replacing] complete with it.
-  Future<void> _startLoad(
-    DirectoryNode<T> directory, {
-    Iterable<_PendingLoad> replacing = const <_PendingLoad>[],
-  }) {
+  /// commits. The discarded loads of [directory] whose loaders still run
+  /// complete with it.
+  Future<void> _startLoad(DirectoryNode<T> directory) {
     final id = directory.id;
     final load = _PendingLoad();
-    for (final discarded in replacing) {
+    for (final discarded in _discarded.remove(id) ?? const <_PendingLoad>[]) {
       discarded.continueWith(load);
     }
     _loads[id] = load;
@@ -2209,7 +2235,20 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       }
       if (_isCurrent(directory.id, load)) _finishLoad(directory.id, entries);
     } finally {
+      final waiting = _discarded[directory.id];
+      if (waiting != null && waiting.remove(load) && waiting.isEmpty) {
+        _discarded.remove(directory.id);
+      }
       load.finish();
+    }
+  }
+
+  /// Ends the loads [discarded] took from [_loads]: each completes with
+  /// the next load of its directory that starts before its loader returns.
+  void _discard(Iterable<MapEntry<NodeId, _PendingLoad>> discarded) {
+    if (_disposed) return;
+    for (final MapEntry(:key, :value) in discarded) {
+      (_discarded[key] ??= <_PendingLoad>[]).add(value);
     }
   }
 
@@ -2223,11 +2262,11 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     if (directory is DirectoryNode<T>) {
       final accepted = _entriesInside(directory, entries, tree.options.paths);
       final toLoad = accepted.isEmpty && !directory.hasChildren
-          ? const <(DirectoryNode<Never>, _PendingLoad?)>[]
+          ? const <DirectoryNode<Never>>[]
           : _replaceContents(directory, accepted);
       _statusOverrides[id] = DirectoryLoadStatus.loaded;
-      for (final (node, discarded) in toLoad) {
-        unawaited(_startLoad(node, replacing: [?discarded]));
+      for (final node in toLoad) {
+        unawaited(_startLoad(node));
       }
     } else {
       _statusOverrides.remove(id);
@@ -2237,17 +2276,16 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     _commit();
   }
 
-  /// Discards the loads below the directory [id], which it returns, and
-  /// drops the load statuses and errors below it, which a load of [id]
-  /// lists again.
-  Map<NodeId, _PendingLoad> _resetBelow(NodeId id) {
+  /// Discards the loads below the directory [id] and drops the load
+  /// statuses and errors below it, which a load of [id] lists again.
+  void _resetBelow(NodeId id) {
     final tree = _tree;
     bool below(NodeId other) => other != id && tree.isAncestor(id, other);
-    final discarded = <NodeId, _PendingLoad>{
-      for (final MapEntry(:key, :value) in _loads.entries)
-        if (below(key)) key: value,
-    };
-    _loads.removeWhere((other, _) => discarded.containsKey(other));
+    _discard([
+      for (final entry in _loads.entries)
+        if (below(entry.key)) entry,
+    ]);
+    _loads.removeWhere((other, _) => below(other));
     final statuses = _statusOverrides.length;
     final errors = _loadErrors.length;
     _statusOverrides.removeWhere((other, _) => below(other));
@@ -2255,14 +2293,12 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     if (_statusOverrides.length != statuses || _loadErrors.length != errors) {
       _dirty = true;
     }
-    return discarded;
   }
 
   /// Puts [accepted], the loaded entries strictly inside [directory], in
   /// place of the directory's contents, with the rules of the [tree] setter
   /// except that the load statuses outside it are kept, and returns the
-  /// directories below it to load now, each with the load of it that this
-  /// discarded, if any.
+  /// directories below it to load now.
   ///
   /// A directory the entries return without contents that had contents
   /// keeps them (a loader that lists one level): it loads again now when
@@ -2273,7 +2309,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// Other open directories below it that need a load (see [_needsLoad])
   /// load now too, also while the filter hides them. O(n) for the new
   /// tree, plus the size of the directory's subtrees.
-  List<(DirectoryNode<T>, _PendingLoad?)> _replaceContents(
+  List<DirectoryNode<T>> _replaceContents(
     DirectoryNode<T> directory,
     List<TreeEntry<T>> accepted,
   ) {
@@ -2352,7 +2388,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       }
     }
     // The listing replaces what was below the directory, and its loads.
-    final discarded = _resetBelow(id);
+    _resetBelow(id);
     _stale.removeWhere((other) => other == id || tree.isAncestor(id, other));
     _applyTree(next, discardLoads: false, open: open);
     for (final checkedId in checked) {
@@ -2361,7 +2397,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
         _setChecks(_checks.check(_tree, checkedId));
       }
     }
-    final toLoad = <(DirectoryNode<T>, _PendingLoad?)>[];
+    final toLoad = <DirectoryNode<T>>[];
     final keptIds = <NodeId>{for (final old in kept) old.id};
     for (final old in kept) {
       final node = _tree[old.id];
@@ -2369,7 +2405,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       // An open folder is listed again now; its row reads its chain's
       // deepest directory.
       if (_isOpen(_chainEnd(node).id)) {
-        toLoad.add((node, discarded[node.id]));
+        toLoad.add(node);
       } else {
         _stale.add(old.id);
       }
@@ -2381,9 +2417,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
     for (var i = from + 1; i < to; i++) {
       final node = below[i];
       if (node is! DirectoryNode<T> || keptIds.contains(node.id)) continue;
-      if (_isOpen(node.id) && _needsLoad(node)) {
-        toLoad.add((node, discarded[node.id]));
-      }
+      if (_isOpen(node.id) && _needsLoad(node)) toLoad.add(node);
     }
     return toLoad;
   }

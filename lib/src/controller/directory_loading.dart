@@ -23,11 +23,17 @@ import 'package:flutter_directory_tree/src/controller/directory_tree_controller.
 /// [NodeId], so under [PathPolicy.caseInsensitive] a differently cased path
 /// is still inside.
 ///
-/// The controller calls the loader at most once at a time per directory and
-/// never synchronously from the command that triggered it. A thrown error or
-/// a failed future marks the directory [DirectoryLoadStatus.failed] and is
-/// reported through [DirectoryLoadErrorCallback]; it never escapes to the
-/// caller.
+/// The controller applies the result of at most one call at a time per
+/// directory and never calls the loader synchronously from the command that
+/// triggered it. A call it discarded (a new [DirectoryTreeController.tree],
+/// or the listing of a reloaded ancestor, arrived first) may still be
+/// running when it calls the loader again for the same directory. The
+/// discarded call's result is ignored, so the loader may cancel it; a loader
+/// that keeps request state per directory must not let the earlier call
+/// clear or answer the newer one.
+/// A thrown error or a failed future marks the directory
+/// [DirectoryLoadStatus.failed] and is reported through
+/// [DirectoryLoadErrorCallback]; it never escapes to the caller.
 typedef DirectoryChildrenLoader<T> = Future<Iterable<TreeEntry<T>>> Function(
   DirectoryNode<T> directory,
 );
