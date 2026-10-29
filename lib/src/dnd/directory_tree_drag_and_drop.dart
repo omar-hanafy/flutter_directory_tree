@@ -482,9 +482,8 @@ class _DirectoryTreeDragAndDropScopeState<T>
   (Type, Object)? _debugReportedMismatch;
 
   /// Reports, once per configuration type and controller, a configuration
-  /// that
-  /// cannot take the controller's nodes. The subtree still builds: rows
-  /// cannot be dragged, but long presses still work.
+  /// that cannot take the controller's nodes. The subtree still builds:
+  /// rows cannot be dragged, but long presses still work.
   void _debugReportTypeMismatch() {
     final config = widget.dragAndDrop;
     final controller = widget.controller;

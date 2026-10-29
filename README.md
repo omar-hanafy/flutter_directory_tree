@@ -390,8 +390,9 @@ typed with Option on macOS or AltGr on Windows count as typing.
 The keys act only while the tree itself has keyboard focus. A click on a
 row gives it focus. When the tree gets the focus without a focused row,
 by Tab or `autofocus`, the focus goes to the first selected row, or to the
-first row. When a text field or a button, even one inside a custom row,
-has focus, every key goes to that widget instead.
+first row; a text field inside a row taking the focus does not move it.
+When a text field or a button, even one inside a custom row, has focus,
+every key goes to that widget instead.
 
 With `selectionFollowsFocus: false`, the arrows, Home, End, the page keys,
 and type-ahead move the focus without changing the selection, and Space
@@ -481,8 +482,9 @@ the user selected. Return an empty list to open no menu for a row.
 The menu is a Material `MenuAnchor` menu. To show a menu from another
 design system, leave `contextMenuBuilder` out and handle
 `onRowSecondaryTap`, which receives the row and the global pointer
-position; Shift+F10 then calls it at the bottom start corner of the
-focused row (bottom right in a right-to-left layout).
+position; Shift+F10 then scrolls the focused row into view and calls it at
+the row's bottom start corner (bottom right in a right-to-left layout)
+once the row is laid out.
 
 On the web, a right click also opens the browser's own context menu over
 the tree's menu. Call `BrowserContextMenu.disableContextMenu()` (from
