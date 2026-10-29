@@ -782,21 +782,25 @@ class DirectoryTreeTheme extends InheritedTheme {
     return _scaled(theme, resolved, scaler);
   }
 
-  // The default row height for a text scale, per resolved theme (one text
-  // scale each: the common case is one per app). The Expando holds its keys
-  // weakly.
-  static final Expando<({TextScaler scaler, DirectoryTreeThemeData data})>
-  _scaledByData = Expando<({TextScaler scaler, DirectoryTreeThemeData data})>(
-    'DirectoryTreeTheme.of',
-  );
+  // The themes with the default row height for each text scale, per
+  // resolved theme. Trees under one theme may use different scalers (for
+  // example one inside MediaQuery.withClampedTextScaling), so each resolved
+  // theme keeps a few; an animated text scale would create a new scaler on
+  // every frame, so the map starts over once it holds _maxScalers. The
+  // Expando holds its keys weakly.
+  static final Expando<Map<TextScaler, DirectoryTreeThemeData>> _scaledByData =
+      Expando<Map<TextScaler, DirectoryTreeThemeData>>('DirectoryTreeTheme.of');
+  static const int _maxScalers = 8;
 
   static DirectoryTreeThemeData _scaled(
     ThemeData theme,
     DirectoryTreeThemeData resolved,
     TextScaler scaler,
   ) {
-    final cached = _scaledByData[resolved];
-    if (cached != null && cached.scaler == scaler) return cached.data;
+    final byScaler = _scaledByData[resolved] ??=
+        <TextScaler, DirectoryTreeThemeData>{};
+    final cached = byScaler[scaler];
+    if (cached != null) return cached;
     // What the largest label line grows by; selected and dimmed labels may
     // use their own fonts.
     var growth = 0.0;
@@ -818,7 +822,8 @@ class DirectoryTreeTheme extends InheritedTheme {
     final data = extent == resolved.rowExtent
         ? resolved
         : resolved.copyWith(rowExtent: extent);
-    _scaledByData[resolved] = (scaler: scaler, data: data);
+    if (byScaler.length >= _maxScalers) byScaler.clear();
+    byScaler[scaler] = data;
     return data;
   }
 

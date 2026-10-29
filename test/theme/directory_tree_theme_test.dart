@@ -1098,6 +1098,37 @@ void main() {
       expect(large.copyWith(rowExtent: normal.rowExtent), normal);
     });
 
+    testWidgets('trees with different text scales under one theme each keep '
+        'their cached result', (tester) async {
+      final theme = ThemeData(
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      );
+      final contexts = <BuildContext>[];
+      Widget scaled(double factor) => MediaQuery(
+        data: MediaQueryData(textScaler: TextScaler.linear(factor)),
+        child: Builder(
+          builder: (c) {
+            contexts.add(c);
+            return const SizedBox();
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        Theme(
+          data: theme,
+          child: Column(children: [scaled(2), scaled(3)]),
+        ),
+      );
+      final two = DirectoryTreeTheme.of(contexts[0]);
+      final three = DirectoryTreeTheme.of(contexts[1]);
+      expect(three.rowExtent, greaterThan(two.rowExtent!));
+      // Alternating calls, as rows of both trees build, hit the cache.
+      for (var i = 0; i < 3; i++) {
+        expect(DirectoryTreeTheme.of(contexts[0]), same(two));
+        expect(DirectoryTreeTheme.of(contexts[1]), same(three));
+      }
+    });
+
     testWidgets('touch platforms get 48 px rows; desktops stay compact', (
       tester,
     ) async {
