@@ -1,0 +1,40 @@
+name: pub-dry-run
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its superseded run. Each pushed commit
+# gets its own group, so a run for main or dev is never canceled or replaced
+# while pending.
+concurrency:
+  group: pub-dry-run-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  dry-run:
+    name: pub-dry-run / dry-run
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Flutter (stable)
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # Warnings are fatal here; never add --ignore-warnings.
+      - name: Pub publish dry-run
+        run: flutter pub publish --dry-run

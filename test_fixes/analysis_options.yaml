@@ -1,0 +1,6 @@
+# Standalone options for the dart fix golden tests (no include): package lints
+# must not rewrite the fixtures. The root analysis_options.yaml excludes this
+# directory, so the outdated code never reaches CI analysis or pub.dev scoring.
+linter:
+  rules:
+    - deprecated_member_use_from_same_package

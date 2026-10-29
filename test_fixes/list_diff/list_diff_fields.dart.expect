@@ -1,0 +1,31 @@
+import 'package:flutter_directory_tree/flutter_directory_tree.dart';
+
+// Reads through the flutter_directory_tree barrel, which re-exports ListDiff
+// from package:directory_tree.
+List<String> apply(ListDiff diff, List<String> before, List<String> after) {
+  final rows = [...before];
+  for (final index in diff.removedIndices) {
+    rows.removeAt(index);
+  }
+  for (final index in diff.insertedIndices) {
+    rows.insert(index, after[index]);
+  }
+  return rows;
+}
+
+int changeCount(ListDiff diff) =>
+    diff.removedIndices.length + diff.insertedIndices.length;
+
+// Property access on an expression, not only on a simple identifier.
+List<int> firstRemovals(List<ListDiff> diffs) => diffs.first.removedIndices;
+
+// Control: an unrelated class with the same member names is untouched.
+class Batch {
+  const Batch(this.removeIndicesDesc, this.insertIndicesAsc);
+
+  final List<int> removeIndicesDesc;
+  final List<int> insertIndicesAsc;
+}
+
+int batchSize(Batch batch) =>
+    batch.removeIndicesDesc.length + batch.insertIndicesAsc.length;

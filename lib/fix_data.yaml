@@ -1,0 +1,94 @@
+# Data-driven fixes for `dart fix --apply` (flutter_directory_tree 1.x -> 2.0.0).
+#
+# Only pure 1:1 renames live here: each transform yields code that compiles
+# against 2.0.0 and keeps its 1.0.0 meaning. Everything else is a manual step
+# in the migration guide. Golden tests: `dart fix test_fixes --compare-to-golden`
+# from the package root.
+#
+# Schema: https://github.com/flutter/flutter/blob/master/docs/contributing/Data-driven-Fixes.md
+version: 1
+
+transforms:
+  # DirectoryTreeThemeData: `indent` became `indentWidth` (same meaning and
+  # default, 16 logical pixels per depth level).
+  - title: "Rename to 'indentWidth'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      constructor: ''
+      inClass: 'DirectoryTreeThemeData'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'indent'
+        newName: 'indentWidth'
+
+  - title: "Rename to 'indentWidth'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      method: 'copyWith'
+      inClass: 'DirectoryTreeThemeData'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'indent'
+        newName: 'indentWidth'
+
+  # DirectoryTreeThemeData: `rowHeight` became `rowExtent`. An explicit value
+  # is used as given in 2.0.0, as it was in 1.0.0; only the default changed.
+  - title: "Rename to 'rowExtent'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      constructor: ''
+      inClass: 'DirectoryTreeThemeData'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'rowHeight'
+        newName: 'rowExtent'
+
+  - title: "Rename to 'rowExtent'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      method: 'copyWith'
+      inClass: 'DirectoryTreeThemeData'
+    changes:
+      - kind: 'renameParameter'
+        oldName: 'rowHeight'
+        newName: 'rowExtent'
+
+  # ListDiff and TreeEntry are declared in package:directory_tree and
+  # re-exported by this package's library, as in 1.0.0. A transform matches
+  # only in files that import one of its `uris`, so directory_tree's own fix
+  # data (same renames, its own URI) does not reach a file that imports only
+  # flutter_directory_tree; these copies cover that file. A file importing
+  # both libraries still gets a single edit.
+  - title: "Rename to 'removedIndices'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      field: 'removeIndicesDesc'
+      inClass: 'ListDiff'
+    changes:
+      - kind: 'rename'
+        newName: 'removedIndices'
+
+  - title: "Rename to 'insertedIndices'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      field: 'insertIndicesAsc'
+      inClass: 'ListDiff'
+    changes:
+      - kind: 'rename'
+        newName: 'insertedIndices'
+
+  - title: "Rename to 'path'"
+    date: 2026-10-29
+    element:
+      uris: ['flutter_directory_tree.dart']
+      field: 'fullPath'
+      inClass: 'TreeEntry'
+    changes:
+      - kind: 'rename'
+        newName: 'path'

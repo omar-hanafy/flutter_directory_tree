@@ -1,0 +1,17 @@
+name: fdt_bench_runner
+description: >-
+  Runs the flutter_directory_tree benchmarks (JIT through flutter test, AOT
+  through a macOS profile app), enforces the per-step time budget, merges the
+  records into benchmark/results.jsonl, and writes benchmark/RESULTS.md.
+publish_to: none
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  fdt_bench_workloads:
+    path: ../workloads
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.28.0

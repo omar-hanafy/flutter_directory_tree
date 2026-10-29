@@ -1,0 +1,22 @@
+{
+  "name": "flutter-directory-tree",
+  "displayName": "Flutter Directory Tree",
+  "version": "2.0.0",
+  "description": "Package-specific skills for the flutter_directory_tree Flutter package: the exact 2.x API (DirectoryTreeController commands, views, slivers, keyboard, context menus, drag and drop, checkboxes and the picker, lazy loading, search, theming, large-tree performance) and the dart fix-assisted 1.x to 2.0 migration.",
+  "author": {
+    "name": "Omar Hanafy",
+    "url": "https://github.com/omar-hanafy"
+  },
+  "homepage": "https://github.com/omar-hanafy/flutter_directory_tree#ai-coding-assistant-support",
+  "repository": "https://github.com/omar-hanafy/flutter_directory_tree",
+  "license": "MIT",
+  "icon": "./assets/icon.png",
+  "keywords": [
+    "flutter",
+    "dart",
+    "flutter-directory-tree",
+    "tree-view",
+    "file-explorer",
+    "widget"
+  ]
+}

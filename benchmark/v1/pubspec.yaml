@@ -1,0 +1,32 @@
+name: fdt_bench_v1
+description: >-
+  Benchmarks flutter_directory_tree 1.0.0, the release published on pub.dev,
+  as a macOS app (AOT, profile mode) and as a widget test (JIT).
+publish_to: none
+version: 1.0.0
+
+environment:
+  sdk: ^3.13.5
+  flutter: ">=3.47.7"
+
+dependencies:
+  # The 1.0.0 baseline, exactly. directory_tree is pinned too so the
+  # baseline is the pair users of 1.0.0 got, even if directory_tree 1.x
+  # gains a release later. The subject only imports flutter_directory_tree,
+  # which re-exports directory_tree.
+  directory_tree: 1.0.0
+  fdt_bench_harness:
+    path: ../harness
+  fdt_bench_workloads:
+    path: ../workloads
+  flutter:
+    sdk: flutter
+  flutter_directory_tree: 1.0.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

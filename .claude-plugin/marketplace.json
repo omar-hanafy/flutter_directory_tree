@@ -1,0 +1,16 @@
+{
+  "name": "flutter-directory-tree-tools",
+  "owner": {
+    "name": "Omar Hanafy"
+  },
+  "description": "AI coding-assistant plugins for the flutter_directory_tree Flutter package",
+  "plugins": [
+    {
+      "name": "flutter-directory-tree",
+      "source": "./tooling/ai/flutter-directory-tree",
+      "description": "Package-specific skills for the flutter_directory_tree Flutter package: the exact 2.x API (DirectoryTreeController commands, views, slivers, keyboard, context menus, drag and drop, checkboxes and the picker, lazy loading, search, theming, large-tree performance) and the dart fix-assisted 1.x to 2.0 migration.",
+      "category": "developer-tools",
+      "tags": ["flutter", "dart", "tree-view", "file-explorer", "widget"]
+    }
+  ]
+}

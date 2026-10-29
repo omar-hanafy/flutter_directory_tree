@@ -1,0 +1,41 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "flutter-directory-tree",
+  "version": "2.0.0",
+  "description": "Package-specific skills for the flutter_directory_tree Flutter package: the exact 2.x API (DirectoryTreeController commands, views, slivers, keyboard, context menus, drag and drop, checkboxes and the picker, lazy loading, search, theming, large-tree performance) and the dart fix-assisted 1.x to 2.0 migration.",
+  "author": {
+    "name": "Omar Hanafy",
+    "url": "https://github.com/omar-hanafy"
+  },
+  "homepage": "https://github.com/omar-hanafy/flutter_directory_tree#ai-coding-assistant-support",
+  "repository": "https://github.com/omar-hanafy/flutter_directory_tree",
+  "license": "MIT",
+  "keywords": [
+    "flutter",
+    "dart",
+    "flutter-directory-tree",
+    "tree-view",
+    "file-explorer",
+    "widget"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Flutter Directory Tree",
+        "shortDescription": "Exact APIs and the 2.0 migration for flutter_directory_tree",
+        "longDescription": "Teaches the agent the flutter_directory_tree 2 API: DirectoryTreeController commands and their requested and effective state, DirectoryTreeView, DirectoryTreePanel, slivers, keyboard bindings, context menus, drag and drop, checkboxes and the picker dialog, lazy loading from the file system, search syntax, theming, and the rules that keep huge trees fast; plus the dart fix-assisted 1.x to 2.0 migration. Skills only: no MCP servers, hooks, or network access.",
+        "developerName": "Omar Hanafy",
+        "category": "Developer Tools",
+        "websiteURL": "https://pub.dev/packages/flutter_directory_tree",
+        "defaultPrompt": [
+          "Upgrade this project to flutter_directory_tree 2",
+          "Add a file explorer pane with flutter_directory_tree",
+          "Let the user pick several folders with flutter_directory_tree"
+        ],
+        "brandColor": "#2F5BD3",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      }
+    }
+  }
+}

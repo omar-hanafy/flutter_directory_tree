@@ -1,28 +1,31 @@
 name: flutter_directory_tree_example
-description: "A new Flutter project."
+description: >-
+  The flutter_directory_tree showcase: an explorer, checkboxes, a lazy file
+  system browser, a 100,000-node tree, live theming, and the picker dialog.
 publish_to: none
 
-version: 1.0.0+1
+version: 2.0.0
 
 environment:
-  sdk: ^3.9.2
+  sdk: ^3.13.5
+  flutter: ">=3.47.7"
 
 dependencies:
+  # Code that the web build keeps references the Cupertino icon font; without
+  # this package `flutter build web` warns that the font is missing.
+  cupertino_icons: ^1.0.8
   flutter:
     sdk: flutter
-
-  cupertino_icons: ^1.0.8
-  directory_tree: ^1.0.0
   flutter_directory_tree:
     path: ../
-  resizable_splitter: ^1.1.0
+  resizable_splitter: ^3.0.0
 
 dev_dependencies:
+  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-
-  flutter_lints: ^6.0.0
-
+  integration_test:
+    sdk: flutter
 
 flutter:
   uses-material-design: true
