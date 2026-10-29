@@ -428,8 +428,10 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   // render sliver was last laid out with these rows.
   _Snapshot<T>? _snapshot;
 
-  // The scroll correction applied since the latest build (see
-  // _anchorScrollOffset).
+  // Every scroll correction applied since the latest build, on either
+  // anchoring path (see _anchorScrollOffset): when showRow's anchor is
+  // dropped before the next build, the first-visible-row path goes on from
+  // the corrections it made.
   double _appliedAnchorCorrection = 0;
 
   // After showRow jumped, the row it showed is the anchor until the layout
@@ -1011,9 +1013,8 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         rows: shown.rows,
         applied: shown.applied + correction,
       );
-    } else {
-      _appliedAnchorCorrection += correction;
     }
+    _appliedAnchorCorrection += correction;
   }
 
   /// Where the row that showRow jumped to moved since (its index then and

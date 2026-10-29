@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_directory_tree/flutter_directory_tree.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -1573,6 +1574,56 @@ void main() {
       }
       expect(past, everyElement(0));
     });
+  });
+
+  group('a correction while the revealed row is the anchor', () {
+    // Ten files that sort before every file of wideTree.
+    final early = [for (var i = 0; i < 10; i++) 'a$i.txt'];
+
+    // Scrolls a settled 100-file tree to file 80 at the top, by an instant
+    // reveal or by a plain jump. A post-frame callback registered first
+    // inserts ten rows above it in the frame that lays the scroll out (so
+    // before the reveal's anchor is dropped); then, before the next build,
+    // the rows go back to what they were. File 80 must end at the top.
+    Future<void> insertThenRevert(
+      WidgetTester tester, {
+      required bool reveal,
+    }) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      await tester.pumpAndSettle();
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        controller.tree = wideTree(100, extra: early);
+      });
+      if (reveal) {
+        unawaited(controller.ensureVisible(wideId(80), alignment: 0));
+      } else {
+        scroll.jumpTo(81 * rowExtent);
+      }
+      expect(scroll.offset, 81 * rowExtent);
+      await tester.pump();
+      // The insert kept file 80 at the top.
+      expect(scroll.offset, 91 * rowExtent);
+      controller.tree = wideTree(100);
+      await tester.pump();
+      expect(scroll.offset, 81 * rowExtent);
+      expect(rowTop(tester, wideId(80)), 0);
+    }
+
+    testWidgets(
+      'is undone by a later change before the next build',
+      (tester) => insertThenRevert(tester, reveal: true),
+    );
+
+    testWidgets(
+      'without a reveal, the same changes cancel out',
+      (tester) => insertThenRevert(tester, reveal: false),
+    );
   });
 
   group('visible area', () {
