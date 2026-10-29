@@ -43,7 +43,12 @@ abstract interface class DirectoryTreeViewport {
   });
 
   /// The bounds of the row at [index] in global coordinates, or `null` when
-  /// that row is not laid out (scrolled away or not built yet).
+  /// no part of that row is on screen.
+  ///
+  /// The result is the whole row, also when only part of it is visible. It
+  /// is `null` when the row is not laid out yet, when it is scrolled out of
+  /// the visible area (even if the scroll view built it ahead, in its cache
+  /// extent), and when a pinned header covers it.
   ///
   /// Use it to anchor a menu or a tooltip to a row, for example the context
   /// menu of the focused row.

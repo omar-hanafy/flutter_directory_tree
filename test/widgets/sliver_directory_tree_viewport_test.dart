@@ -585,4 +585,301 @@ void main() {
       expect(tester.getTopLeft(find.byKey(footer)).dy, -200);
     });
   });
+
+  group('scroll anchoring during scroll activities', () {
+    // Twenty files that sort before every file of wideTree.
+    final early = [
+      for (var i = 0; i < 20; i++) 'a${i.toString().padLeft(2, '0')}.txt',
+    ];
+
+    // The first fully visible row of [controller] and its top on screen.
+    ({NodeId id, double top}) firstRow(
+      WidgetTester tester,
+      DirectoryTreeController<int> controller,
+      double offset,
+    ) {
+      final id = controller.rows[(offset / rowExtent).ceil()].id;
+      return (id: id, top: shownTop(tester, id));
+    }
+
+    // Flings up, lets six frames of momentum pass, optionally refreshes the
+    // tree with 20 rows above everything, and returns the settled offset.
+    Future<double> flingAndSettle(
+      WidgetTester tester,
+      DirectoryTreeController<int> controller,
+      ScrollController scroll, {
+      required bool reset,
+    }) async {
+      await tester.fling(
+        find.byType(CustomScrollView),
+        const Offset(0, -200),
+        2000,
+      );
+      for (var i = 0; i < 6; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(scroll.position.activity, isA<BallisticScrollActivity>());
+      final before = firstRow(tester, controller, scroll.offset);
+      if (reset) controller.tree = wideTree(1000, extra: early);
+      await tester.pump(const Duration(milliseconds: 16));
+      // The row moved by one frame of momentum, not by the inserted rows.
+      expect(
+        (shownTop(tester, before.id) - before.top).abs(),
+        lessThan(5 * rowExtent),
+      );
+      await tester.pumpAndSettle();
+      return scroll.offset;
+    }
+
+    testWidgets('a reset during a fling keeps the anchor and the momentum', (
+      tester,
+    ) async {
+      final control = wideController(1000);
+      addTearDown(control.dispose);
+      final controlScroll = ScrollController();
+      addTearDown(controlScroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: control, scrollController: controlScroll),
+      );
+      final expected = await flingAndSettle(
+        tester,
+        control,
+        controlScroll,
+        reset: false,
+      );
+      expect(expected, greaterThan(20 * rowExtent));
+
+      final controller = wideController(1000);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      final offset = await flingAndSettle(
+        tester,
+        controller,
+        scroll,
+        reset: true,
+      );
+      // The fling ends where it would have, moved by the inserted rows.
+      expect(offset, closeTo(expected + 20 * rowExtent, rowExtent));
+    });
+
+    testWidgets('a reset during an animated reveal keeps the anchor, and the '
+        'revealed row still ends where it was asked to be', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      var done = false;
+      unawaited(
+        controller
+            .ensureVisible(
+              wideId(70),
+              alignment: 0,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.linear,
+            )
+            .then((_) => done = true),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final before = firstRow(tester, controller, scroll.offset);
+      // Twenty rows above the view and five between it and the target.
+      controller.tree = wideTree(
+        100,
+        extra: [...early, for (var i = 0; i < 5; i++) 'f0060_$i.txt'],
+      );
+      await tester.pump();
+      expect(
+        (shownTop(tester, before.id) - before.top).abs(),
+        lessThan(5 * rowExtent),
+      );
+      expect(done, isFalse);
+      await tester.pumpAndSettle();
+      expect(done, isTrue);
+      expect(shownTop(tester, wideId(70)), 0);
+    });
+
+    testWidgets('a reset during an app animation keeps the anchor', (
+      tester,
+    ) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      unawaited(
+        scroll.animateTo(
+          40 * rowExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.linear,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      final before = firstRow(tester, controller, scroll.offset);
+      controller.tree = wideTree(100, extra: early);
+      await tester.pump();
+      expect(
+        (shownTop(tester, before.id) - before.top).abs(),
+        lessThan(5 * rowExtent),
+      );
+      await tester.pumpAndSettle();
+      // The animation lands on the content it was heading to.
+      expect(scroll.offset, 60 * rowExtent);
+      expect(shownTop(tester, wideId(39)), 0);
+    });
+
+    testWidgets('when the revealed row disappears before the next frame, the '
+        'next row keeps its place', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      scroll.jumpTo(40 * rowExtent);
+      await tester.pump();
+
+      controller.reveal(wideId(5), alignment: 0);
+      expect(scroll.offset, 6 * rowExtent);
+      // File 5 goes away and 30 rows appear above it.
+      controller.tree = DirectoryTree<int>.build([
+        for (var i = 0; i < 30; i++)
+          TreeEntry<int>.file('/w/a${i.toString().padLeft(2, '0')}'),
+        for (var i = 0; i < 100; i++)
+          if (i != 5) TreeEntry<int>.file('/w/${wideName(i)}'),
+      ]);
+      await tester.pump();
+      expect(shownTop(tester, wideId(6)), rowExtent);
+      expect(scroll.offset, 35 * rowExtent);
+    });
+  });
+
+  group('visible area', () {
+    testWidgets('pageRowCount counts only the rows the viewport shows', (
+      tester,
+    ) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          scrollController: scroll,
+          before: const [
+            SliverPersistentHeader(pinned: true, delegate: _PinnedHeader()),
+          ],
+        ),
+      );
+      // A pinned 120 px header leaves 180 px: 6 rows.
+      expect(viewportOf(tester).pageRowCount, 6);
+      scroll.jumpTo(1000);
+      await tester.pump();
+      expect(viewportOf(tester).pageRowCount, 6);
+
+      // A 100 px header scrolls away; the 20 px padding leaves with it.
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          scrollController: scroll,
+          before: const [header],
+          padding: const EdgeInsets.only(top: 20),
+        ),
+      );
+      scroll.jumpTo(0);
+      await tester.pump();
+      expect(viewportOf(tester).pageRowCount, 6);
+      scroll.jumpTo(1000);
+      await tester.pump();
+      expect(viewportOf(tester).pageRowCount, 10);
+    });
+
+    testWidgets('globalRowRect is null for built rows outside the visible '
+        'area', (tester) async {
+      final controller = wideController(100);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      scroll.jumpTo(10 * rowExtent + 15);
+      await tester.pump();
+      final viewport = viewportOf(tester);
+      // Row 9 (file 8) is above the view but built for the cache extent.
+      expect(
+        find.byKey(ValueKey<NodeId>(wideId(8)), skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(viewport.globalRowRect(9), isNull);
+      // Rows 10 and 20 are each half visible.
+      expect(viewport.globalRowRect(10), tester.getRect(rowOf(wideId(9))));
+      expect(viewport.globalRowRect(20), tester.getRect(rowOf(wideId(19))));
+      // Row 21 (file 20) is built for the cache extent below the view.
+      expect(
+        find.byKey(ValueKey<NodeId>(wideId(20)), skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(viewport.globalRowRect(21), isNull);
+
+      // Rows under a pinned header are hidden too.
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          scrollController: scroll,
+          before: const [
+            SliverPersistentHeader(pinned: true, delegate: _PinnedHeader()),
+          ],
+        ),
+      );
+      scroll.jumpTo(10 * rowExtent);
+      await tester.pump();
+      // The tree starts at 120 px: rows 6 to 9 are on screen but under the
+      // header, row 10 is the first visible one.
+      expect(
+        find.byKey(ValueKey<NodeId>(wideId(8)), skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(viewportOf(tester).globalRowRect(9), isNull);
+      expect(viewportOf(tester).globalRowRect(10), isNotNull);
+    });
+  });
+}
+
+/// The global top edge of the row of [id], or infinity when the row is not
+/// built (so a row that jumped out of view fails a closeness check).
+double shownTop(WidgetTester tester, NodeId id) {
+  final finder = find.byKey(ValueKey<NodeId>(id), skipOffstage: false);
+  return finder.evaluate().isEmpty
+      ? double.infinity
+      : tester.getTopLeft(finder).dy;
+}
+
+/// A pinned header 120 px high.
+class _PinnedHeader extends SliverPersistentHeaderDelegate {
+  const _PinnedHeader();
+
+  @override
+  double get minExtent => 120;
+
+  @override
+  double get maxExtent => 120;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
+      const SizedBox.expand();
+
+  @override
+  bool shouldRebuild(_PinnedHeader oldDelegate) => false;
 }
