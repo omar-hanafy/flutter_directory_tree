@@ -26,8 +26,10 @@ pubspec_overrides.yaml
 /example/pubspec.lock
 
 # Maintainer-only tooling, benchmarks, agent files, and contributor docs.
+# The skill claims test reads tooling/, which the archive leaves out.
 /tool/
 /tooling/
+/test/agent_skill_claims_test.dart
 /benchmark/
 .claude/
 AGENTS.md

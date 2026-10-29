@@ -812,6 +812,49 @@ maps every 1.x declaration to its replacement, lists the changes that
 compile but behave differently, and has recipes for 1.x features that
 moved.
 
+## AI coding-assistant support
+
+This repository also ships a plugin that teaches coding agents the exact
+flutter_directory_tree 2 API, so they stop writing 1.x code or calls that
+compile but do nothing. It is tooling for your agent, not part of the
+Flutter package, and it contains instructions only: no hooks, MCP servers,
+or network access.
+
+| Skill | What it covers |
+| --- | --- |
+| `use-flutter-directory-tree` | The controller's commands and state, the views, slivers, keyboard, custom rows, checkboxes and the picker, menus, drag and drop, lazy loading, search, theming, and large-tree performance |
+| `migrate-flutter-directory-tree-v1-to-v2` | The 2.0 upgrade: `dart fix --apply` for the renames, the 1.x to 2.0 mapping, and the behavior changes |
+
+Claude Code (in a session):
+
+```text
+/plugin marketplace add omar-hanafy/flutter_directory_tree
+/plugin install flutter-directory-tree@flutter-directory-tree-tools
+```
+
+Codex:
+
+```bash
+codex plugin marketplace add omar-hanafy/flutter_directory_tree
+codex plugin add flutter-directory-tree@flutter-directory-tree-tools
+```
+
+Antigravity, for the `agy` CLI and the IDE and desktop app, which read the
+same plugin folder:
+
+```bash
+agy plugin install https://github.com/omar-hanafy/flutter_directory_tree/tree/main/tooling/ai/flutter-directory-tree
+```
+
+Start a new agent session after installing (or run `/reload-plugins` in
+Claude Code). The skills load when a request needs them, for example
+"upgrade this project to flutter_directory_tree 2" or "add a file explorer
+pane with flutter_directory_tree that remembers the open folders".
+The [plugin README](https://github.com/omar-hanafy/flutter_directory_tree/blob/main/tooling/ai/flutter-directory-tree/README.md)
+covers updating, removing, and the checks behind it. Installation is tested
+in Claude Code 2.1.312, Codex 0.165.0, and Antigravity CLI 1.4.9, and CI
+repeats the test weekly with each host's current release.
+
 ## Development
 
 Run these from the package root before sending a change:

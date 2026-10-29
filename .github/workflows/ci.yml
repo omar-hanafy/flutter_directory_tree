@@ -93,6 +93,9 @@ jobs:
       - name: Repository checks
         run: dart run tool/check_repo.dart
 
+      - name: Validate the agent plugin
+        run: dart tool/validate_agent_plugin.dart
+
       - name: Test (VM)
         run: flutter test
 
