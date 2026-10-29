@@ -31,9 +31,9 @@
 ///   size limits (`description` 1024 characters, `compatibility` 500);
 ///   self-contained skill links (inline links, images, and reference-style
 ///   definitions, also inside block quotes and list items, all outside code;
-///   the reading fails closed, so text it cannot place is checked as prose;
-///   footnotes are not links); and no machine-specific or secret-looking
-///   content in any plugin file;
+///   the file is read several ways and every link any reading keeps as prose
+///   is checked, so the check fails closed; footnotes are not links); and no
+///   machine-specific or secret-looking content in any plugin file;
 /// - every eval case has a prompt and graders, and its skill graders name
 ///   skills that exist;
 /// - README.md and the plugin README show, as exact lines of a code block
@@ -783,24 +783,29 @@ final _nonStringScalars = [
 ];
 
 void _checkSkillLinks(String skillDir, String mdPath, String content) {
-  final prose = _withoutCode(content);
-  final targets = [
-    // The target of every inline link and image: `](target)` or
-    // `](<target>)`. Matching the closing bracket alone checks both the
-    // image and the outer link of `[![alt](image)](target)`.
-    for (final match in RegExp(
-      r'\]\(\s*(?:<([^>\n]*)>|([^)\s]+))[^)]*\)',
-    ).allMatches(prose))
-      match.group(1) ?? match.group(2)!,
-    // Reference-style link definitions, also inside block quotes and list
-    // items (after any markers and indentation); `[^1]:` starts a footnote.
-    for (final match in RegExp(
-      r'^(?:[ \t]*(?:>|(?:[-+*]|[0-9]{1,9}[.)])[ \t]))*[ \t]*'
-      r'\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
-      multiLine: true,
-    ).allMatches(prose))
-      match.group(1)!,
-  ];
+  // Every reading of the code in the file (see [_proseReadings]) gives
+  // its targets; checking the union means a link that any reading sees as
+  // prose is checked, so a link CommonMark renders is never skipped.
+  final targets = <String>{
+    for (final prose in _proseReadings(content)) ...[
+      // The target of every inline link and image: `](target)` or
+      // `](<target>)`. Matching the closing bracket alone checks both the
+      // image and the outer link of `[![alt](image)](target)`.
+      for (final match in RegExp(
+        r'\]\(\s*(?:<([^>\n]*)>|([^)\s]+))[^)]*\)',
+      ).allMatches(prose))
+        match.group(1) ?? match.group(2)!,
+      // Reference-style link definitions, also inside block quotes and
+      // list items (after any markers and indentation); `[^1]:` starts a
+      // footnote.
+      for (final match in RegExp(
+        r'^(?:[ \t]*(?:>|(?:[-+*]|[0-9]{1,9}[.)])[ \t]))*[ \t]*'
+        r'\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
+        multiLine: true,
+      ).allMatches(prose))
+        match.group(1)!,
+    ],
+  };
   for (final raw in targets) {
     final target = raw.split('#').first.trim();
     if (target.isEmpty || target.contains('://')) continue;
@@ -824,31 +829,108 @@ void _checkSkillLinks(String skillDir, String mdPath, String content) {
   }
 }
 
-/// [markdown] without code, so brackets in code are never read as links.
+/// [markdown] without code, read in every way this approximation of
+/// CommonMark allows, so the link check can take the union of their links.
 ///
-/// The reading fails closed: wherever it could differ from CommonMark, it
-/// keeps text to check rather than dropping it, so a live link is never
-/// skipped (a link-like text in code may be reported instead; the failure
-/// names the line). Fenced blocks are dropped: a fence closes with a fence
-/// of the same character at least as long as the opening one, at the end of
-/// the file, or, for a fence indented like list item content, at the first
-/// non-blank line indented less than its opening line (the item ended). No
-/// fence opens inside an HTML block (a comment until `-->`, `script`, `pre`,
-/// `style`, or `textarea` until its closing tag, any other tag line until a
-/// blank line). Code spans become a placeholder only within one line: a run
-/// of backticks (an escaped first backtick is text) pairs with the next run
-/// of the same length on the same line, so a span never swallows text on
-/// another line.
-String _withoutCode(String markdown) {
+/// No single reading here is CommonMark, so the check fails closed by
+/// reading the file several ways and checking every link that any reading
+/// keeps as prose: a link CommonMark renders survives in at least one
+/// reading, while a link-like text that is code in CommonMark may be
+/// reported (the failure names it). The readings combine:
+///
+/// * Fences, two ways. Strict: a fence opens at the start of a line (up to
+///   3 spaces of indentation) and closes with a fence of the same
+///   character at least as long, or at the end of the file. List: a fence
+///   also opens as list item content (after list markers, or indented
+///   under one), and also ends at the first non-blank line indented less
+///   than its opening line (the item ended).
+/// * HTML blocks, two ways: with them (no fence opens inside a comment
+///   until `-->`, `script`, `pre`, `style`, or `textarea` until its
+///   closing tag, or another line that starts with a tag until a blank
+///   line) and without them.
+/// * Code spans, three ways: a run of backticks (an escaped first backtick
+///   is text) pairs with the next run of the same length on the same line,
+///   within the same block (a blank line, a heading, a list item, a block
+///   quote, a table row, or an HTML line starts a block), or within the
+///   same paragraph (only blank lines split it).
+///
+/// Tabs count to the next multiple of four columns, as in CommonMark.
+Iterable<String> _proseReadings(String markdown) sync* {
+  final lines = const LineSplitter()
+      .convert(markdown)
+      .map(_expandTabs)
+      .toList();
+  for (final listFences in [false, true]) {
+    for (final htmlBlocks in [true, false]) {
+      final kept = _withoutFences(
+        lines,
+        listFences: listFences,
+        htmlBlocks: htmlBlocks,
+      );
+      yield kept.map(_withoutCodeSpans).join('\n');
+      yield _blocks(kept, _blockStart).map(_withoutCodeSpans).join('\n');
+      yield _blocks(kept, null).map(_withoutCodeSpans).join('\n');
+    }
+  }
+}
+
+/// A line that starts a new block, for the block reading of code spans.
+final _blockStart = RegExp(
+  r'^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*](?:[ \t]|$)|[0-9]{1,9}[.)](?:[ \t]|$)'
+  r'|\||<)',
+);
+
+/// [lines] joined into blocks: a blank line, or a line that [start]
+/// matches, begins a new one.
+List<String> _blocks(List<String> lines, RegExp? start) {
+  final blocks = <List<String>>[[]];
+  for (final line in lines) {
+    if (line.trim().isEmpty || (start?.hasMatch(line) ?? false)) {
+      blocks.add([]);
+    }
+    blocks.last.add(line);
+  }
+  return [for (final block in blocks) block.join('\n')];
+}
+
+/// [line] with every tab replaced by the spaces up to the next multiple of
+/// four columns.
+String _expandTabs(String line) {
+  if (!line.contains('\t')) return line;
+  final out = StringBuffer();
+  var column = 0;
+  for (final char in line.split('')) {
+    if (char == '\t') {
+      final width = 4 - column % 4;
+      out.write(' ' * width);
+      column += width;
+    } else {
+      out.write(char);
+      column++;
+    }
+  }
+  return out.toString();
+}
+
+/// [lines] without fenced blocks, read with or without [listFences] and
+/// [htmlBlocks] (see [_proseReadings]).
+List<String> _withoutFences(
+  List<String> lines, {
+  required bool listFences,
+  required bool htmlBlocks,
+}) {
   final kept = <String>[];
   String? fence;
   var fenceIndent = 0;
   RegExp? htmlEnd;
   int indentOf(String line) => line.length - line.trimLeft().length;
-  for (final line in const LineSplitter().convert(markdown)) {
+  final opener = listFences
+      ? RegExp(r'^((?:[ ]*(?:[-+*]|[0-9]{1,9}[.)])[ ]+)*[ ]*)(`{3,}|~{3,})')
+      : RegExp(r'^( {0,3})(`{3,}|~{3,})');
+  for (final line in lines) {
     if (fence != null) {
       final indent = indentOf(line);
-      final marker = RegExp(r'^[ \t]*(`{3,}|~{3,})[ \t]*$')
+      final marker = RegExp(r'^[ ]*(`{3,}|~{3,})[ ]*$')
           .firstMatch(line)
           ?.group(1);
       if (marker != null &&
@@ -858,7 +940,10 @@ String _withoutCode(String markdown) {
         fence = null;
         continue;
       }
-      if (line.trim().isEmpty || indent >= fenceIndent || fenceIndent == 0) {
+      if (!listFences ||
+          line.trim().isEmpty ||
+          indent >= fenceIndent ||
+          fenceIndent == 0) {
         continue;
       }
       // A less indented line ends the list item, and the fence with it.
@@ -869,25 +954,22 @@ String _withoutCode(String markdown) {
       kept.add(line);
       continue;
     }
-    if (RegExp(r'^ {0,3}<!--').hasMatch(line)) {
+    if (htmlBlocks && RegExp(r'^ {0,3}<!--').hasMatch(line)) {
       if (!line.contains('-->')) htmlEnd = RegExp('-->');
-    } else if (RegExp(
-      r'^ {0,3}<(script|pre|style|textarea)\b',
-      caseSensitive: false,
-    ).hasMatch(line)) {
+    } else if (htmlBlocks &&
+        RegExp(
+          r'^ {0,3}<(script|pre|style|textarea)\b',
+          caseSensitive: false,
+        ).hasMatch(line)) {
       final close = RegExp(
         r'</(script|pre|style|textarea)>',
         caseSensitive: false,
       );
       if (!close.hasMatch(line)) htmlEnd = close;
-    } else if (RegExp(r'^ {0,3}<[/!?A-Za-z]').hasMatch(line)) {
+    } else if (htmlBlocks && RegExp(r'^ {0,3}<[/!?A-Za-z]').hasMatch(line)) {
       htmlEnd = RegExp(r'^[ \t]*$');
     } else {
-      // A fence opener at the start of a line, or as list item content
-      // (after a marker or indented under one).
-      final match = RegExp(
-        r'^((?:[ \t]*(?:[-+*]|[0-9]{1,9}[.)])[ \t]+)*[ \t]*)(`{3,}|~{3,})',
-      ).firstMatch(line);
+      final match = opener.firstMatch(line);
       final marker = match?.group(2);
       // An info string after backticks may not contain a backtick.
       if (marker != null &&
@@ -899,16 +981,16 @@ String _withoutCode(String markdown) {
     }
     kept.add(line);
   }
-  return kept.map(_withoutCodeSpans).join('\n');
+  return kept;
 }
 
-/// [line] with each code span replaced by `code`: a run of n backticks
+/// [text] with each code span replaced by `code`: a run of n backticks
 /// opens a span that the next run of exactly n backticks closes; a run
 /// with no partner stays as text, and a backslash before a run makes its
 /// first backtick text.
-String _withoutCodeSpans(String line) {
+String _withoutCodeSpans(String text) {
   final runs = <({int start, int end})>[
-    for (final match in RegExp('`+').allMatches(line))
+    for (final match in RegExp('`+').allMatches(text))
       (start: match.start, end: match.end),
   ];
   final out = StringBuffer();
@@ -916,7 +998,7 @@ String _withoutCodeSpans(String line) {
   var i = 0;
   while (i < runs.length) {
     var open = runs[i];
-    if (_escaped(line, open.start)) {
+    if (_escaped(text, open.start)) {
       open = (start: open.start + 1, end: open.end);
       if (open.start == open.end) {
         i++;
@@ -933,12 +1015,12 @@ String _withoutCodeSpans(String line) {
       continue;
     }
     out
-      ..write(line.substring(copied, open.start))
+      ..write(text.substring(copied, open.start))
       ..write('code');
     copied = runs[close].end;
     i = close + 1;
   }
-  out.write(line.substring(copied));
+  out.write(text.substring(copied));
   return out.toString();
 }
 
