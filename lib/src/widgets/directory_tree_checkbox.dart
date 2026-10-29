@@ -19,7 +19,10 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 ///   showing [DirectoryTreeRowDetails.checkState], so a directory with some
 ///   checked leaves shows a dash. A click calls
 ///   [DirectoryTreeController.toggleChecked]: a partial or unchecked node
-///   becomes checked with its whole subtree, a checked one unchecked.
+///   becomes checked with its whole subtree, a checked one unchecked. An
+///   unchecked or partial box that [SelectionState.canCheck] rejects is
+///   disabled: in [SelectionMode.single], a directory with more than one
+///   leaf below it.
 /// * [DirectoryTreeCheckboxMode.selection]: a two-state checkbox that
 ///   mirrors [DirectoryTreeRowDetails.isSelected]. A click calls
 ///   [DirectoryTreeController.toggleSelected] for this row only, so a
@@ -59,7 +62,14 @@ class DirectoryTreeCheckbox<T> extends StatelessWidget {
       CheckState.partial => tristate ? null : false,
       CheckState.unchecked => false,
     };
-    final enabled = tristate || details.controller.isSelectable(details.row.id);
+    final controller = details.controller;
+    final id = details.row.id;
+    final enabled = tristate
+        // Unchecking is always allowed; checking only where the checks'
+        // mode allows it.
+        ? state == CheckState.checked ||
+              controller.checks.canCheck(controller.tree, id)
+        : controller.isSelectable(id);
     return ExcludeFocus(
       child: SizedBox.square(
         dimension: size,

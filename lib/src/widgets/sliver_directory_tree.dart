@@ -333,6 +333,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
 
   _InsertedBlock? _insertedBlock;
 
+  // The tree and checks mode the cached rows' checkboxes were built for:
+  // whether a box is enabled depends on both (SelectionState.canCheck).
+  DirectoryTree<T>? _checksTree;
+  SelectionMode? _checksMode;
+
   final Map<NodeId, _CachedRow<T>> _cache = <NodeId, _CachedRow<T>>{};
   final Map<NodeId, _RowItemState<T>> _items = <NodeId, _RowItemState<T>>{};
 
@@ -461,6 +466,15 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
         : theme.animationDuration!;
     _insertCurve = theme.animationCurve!;
     final controller = _controller;
+    if (widget.checkboxMode == DirectoryTreeCheckboxMode.checks) {
+      final tree = controller.tree;
+      final mode = controller.checks.mode;
+      if (!identical(tree, _checksTree) || mode != _checksMode) {
+        _cache.clear();
+        _checksTree = tree;
+        _checksMode = mode;
+      }
+    }
     final snapshot = _Snapshot<T>(
       rows: _rows,
       focusedId: controller.focusedId,

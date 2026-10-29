@@ -559,6 +559,45 @@ void main() {
       expect(checkboxOf(tester, readme).onChanged, isNotNull);
     });
 
+    testWidgets('checks mode: boxes that cannot be checked are disabled', (
+      tester,
+    ) async {
+      // In single mode only a node with at most one leaf can be checked.
+      final controller = DirectoryTreeController<int>(
+        tree: sampleTree(),
+        expansion: const ExpansionState.expanded(),
+        checks: const SelectionState.empty(mode: SelectionMode.single),
+      );
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          checkboxMode: DirectoryTreeCheckboxMode.checks,
+        ),
+      );
+      expect(checkboxOf(tester, src).onChanged, isNull);
+      expect(checkboxOf(tester, testDir).onChanged, isNotNull);
+      expect(checkboxOf(tester, aDart).onChanged, isNotNull);
+
+      // A checked node can always be unchecked.
+      controller.setChecked(mainTest, checked: true);
+      await tester.pump();
+      expect(checkboxOf(tester, testDir).value, isTrue);
+      expect(checkboxOf(tester, testDir).onChanged, isNotNull);
+
+      // Switching to multiple mode enables every box.
+      controller.checks = const SelectionState.empty(
+        mode: SelectionMode.multiple,
+      );
+      await tester.pump();
+      expect(checkboxOf(tester, src).onChanged, isNotNull);
+      controller.checks = const SelectionState.empty(
+        mode: SelectionMode.single,
+      );
+      await tester.pump();
+      expect(checkboxOf(tester, src).onChanged, isNull);
+    });
+
     testWidgets('none mode shows no checkbox', (tester) async {
       final controller = expandedController();
       addTearDown(controller.dispose);
