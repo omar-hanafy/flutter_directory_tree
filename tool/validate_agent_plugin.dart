@@ -30,9 +30,10 @@
 ///   that string (so numbers, booleans, nulls, and dates must be quoted);
 ///   size limits (`description` 1024 characters, `compatibility` 500);
 ///   self-contained skill links (inline links, images, and reference-style
-///   definitions, also inside block quotes, all outside code; footnotes are
-///   not links); and no machine-specific or secret-looking content in any
-///   plugin file;
+///   definitions, also inside block quotes and list items, all outside code,
+///   failing closed where the reading could differ from CommonMark;
+///   footnotes are not links); and no machine-specific or secret-looking
+///   content in any plugin file;
 /// - every eval case has a prompt and graders, and its skill graders name
 ///   skills that exist;
 /// - README.md and the plugin README show, as exact lines of a code block
@@ -740,7 +741,8 @@ String? _yamlValue(String path, String key, String raw) {
     return inner.replaceAll("''", "'");
   }
   if (_yamlIndicators.contains(raw[0]) ||
-      (raw.length > 1 && '-?:'.contains(raw[0]) && raw[1] == ' ')) {
+      ('-?:'.contains(raw[0]) &&
+          (raw.length == 1 || raw[1] == ' ' || raw[1] == '\t'))) {
     reject('starts with the YAML indicator "${raw[0]}"; quote the value');
     return null;
   }
@@ -790,10 +792,11 @@ void _checkSkillLinks(String skillDir, String mdPath, String content) {
       r'\]\(\s*(?:<([^>\n]*)>|([^)\s]+))[^)]*\)',
     ).allMatches(prose))
       match.group(1) ?? match.group(2)!,
-    // Reference-style link definitions, also inside block quotes;
-    // `[^1]:` starts a footnote.
+    // Reference-style link definitions, also inside block quotes and list
+    // items (after any markers and indentation); `[^1]:` starts a footnote.
     for (final match in RegExp(
-      r'^(?: {0,3}>)* {0,3}\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
+      r'^(?:[ \t]*(?:>|(?:[-+*]|[0-9]{1,9}[.)])[ \t]))*[ \t]*'
+      r'\[(?!\^)[^\]]+\]:\s*<?([^\s>]+)>?',
       multiLine: true,
     ).allMatches(prose))
       match.group(1)!,
@@ -821,45 +824,99 @@ void _checkSkillLinks(String skillDir, String mdPath, String content) {
   }
 }
 
-/// [markdown] without code: fenced blocks (closed only by a fence of the
-/// same character at least as long as the opening one, or by the end of
-/// the file) are dropped, and code spans (closed by a backtick run of the
-/// same length within the same paragraph) become a placeholder, so
-/// brackets in code are never read as links.
+/// [markdown] without code, so brackets in code are never read as links.
+///
+/// Fenced blocks are dropped: a fence closes only with a fence of the same
+/// character at least as long as the opening one, or at the end of the
+/// file, and no fence opens inside an HTML block (a comment until `-->`,
+/// `script`, `pre`, `style`, or `textarea` until its closing tag, any
+/// other tag line until a blank line). Code spans become a placeholder: a
+/// run of backticks opens a span (an escaped first backtick is text) that
+/// the next run of the same length closes within the same block, where a
+/// blank line, a heading, a list item, a block quote, a table row, or an
+/// HTML line starts a new block. Where this reading and CommonMark could
+/// differ, it keeps text to check rather than dropping it, so the check
+/// fails closed.
 String _withoutCode(String markdown) {
-  final kept = <String>[];
+  final blocks = <List<String>>[[]];
   String? fence;
+  RegExp? htmlEnd;
+  final blockStart = RegExp(
+    r'^ {0,3}(?:#{1,6}(?:[ \t]|$)|>|[-+*](?:[ \t]|$)|[0-9]{1,9}[.)](?:[ \t]|$)'
+    r'|\||<)',
+  );
   for (final line in const LineSplitter().convert(markdown)) {
-    final marker = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line)?.group(1);
-    if (fence == null) {
+    if (fence != null) {
+      final marker = RegExp(r'^ {0,3}(`{3,}|~{3,})[ \t]*$')
+          .firstMatch(line)
+          ?.group(1);
+      if (marker != null &&
+          marker[0] == fence[0] &&
+          marker.length >= fence.length) {
+        fence = null;
+      }
+      continue;
+    }
+    if (htmlEnd != null) {
+      if (htmlEnd.hasMatch(line)) htmlEnd = null;
+      blocks.last.add(line);
+      continue;
+    }
+    if (RegExp(r'^ {0,3}<!--').hasMatch(line)) {
+      if (!line.contains('-->')) htmlEnd = RegExp('-->');
+    } else if (RegExp(
+      r'^ {0,3}<(script|pre|style|textarea)\b',
+      caseSensitive: false,
+    ).hasMatch(line)) {
+      if (!RegExp(
+        r'</(script|pre|style|textarea)>',
+        caseSensitive: false,
+      ).hasMatch(line)) {
+        htmlEnd = RegExp(
+          r'</(script|pre|style|textarea)>',
+          caseSensitive: false,
+        );
+      }
+    } else if (RegExp(r'^ {0,3}<[/!?A-Za-z]').hasMatch(line)) {
+      htmlEnd = RegExp(r'^[ \t]*$');
+    } else {
+      final marker = RegExp(r'^ {0,3}(`{3,}|~{3,})').firstMatch(line)?.group(1);
+      // An info string after backticks may not contain a backtick.
       if (marker != null &&
           !(marker[0] == '`' &&
               line.contains('`', line.indexOf(marker) + marker.length))) {
         fence = marker;
+        blocks.add([]);
         continue;
       }
-      kept.add(line);
-    } else if (marker != null &&
-        marker[0] == fence[0] &&
-        marker.length >= fence.length &&
-        line.trim() == marker) {
-      fence = null;
     }
+    if (line.trim().isEmpty || blockStart.hasMatch(line)) blocks.add([]);
+    blocks.last.add(line);
   }
-  final paragraphs = kept.join('\n').split(RegExp(r'\n[ \t]*\n'));
-  return paragraphs.map(_withoutCodeSpans).join('\n\n');
+  return blocks.map((block) => _withoutCodeSpans(block.join('\n'))).join('\n');
 }
 
-/// [paragraph] with each code span replaced by `code`: a run of n backticks
+/// [block] with each code span replaced by `code`: a run of n backticks
 /// opens a span that the next run of exactly n backticks closes; a run
-/// with no partner stays as text.
-String _withoutCodeSpans(String paragraph) {
-  final runs = RegExp('`+').allMatches(paragraph).toList();
+/// with no partner stays as text, and a backslash before a run makes its
+/// first backtick text.
+String _withoutCodeSpans(String block) {
+  final runs = <({int start, int end})>[
+    for (final match in RegExp('`+').allMatches(block))
+      (start: match.start, end: match.end),
+  ];
   final out = StringBuffer();
   var copied = 0;
   var i = 0;
   while (i < runs.length) {
-    final open = runs[i];
+    var open = runs[i];
+    if (_escaped(block, open.start)) {
+      open = (start: open.start + 1, end: open.end);
+      if (open.start == open.end) {
+        i++;
+        continue;
+      }
+    }
     final length = open.end - open.start;
     final close = runs.indexWhere(
       (run) => run.end - run.start == length,
@@ -870,13 +927,23 @@ String _withoutCodeSpans(String paragraph) {
       continue;
     }
     out
-      ..write(paragraph.substring(copied, open.start))
+      ..write(block.substring(copied, open.start))
       ..write('code');
     copied = runs[close].end;
     i = close + 1;
   }
-  out.write(paragraph.substring(copied));
+  out.write(block.substring(copied));
   return out.toString();
+}
+
+/// Whether the character at [index] of [text] follows an odd number of
+/// backslashes.
+bool _escaped(String text, int index) {
+  var backslashes = 0;
+  for (var i = index - 1; i >= 0 && text[i] == r'\'; i--) {
+    backslashes++;
+  }
+  return backslashes.isOdd;
 }
 
 void _checkTextFile(File file) {
