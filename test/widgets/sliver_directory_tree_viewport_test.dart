@@ -922,6 +922,163 @@ void main() {
     });
   });
 
+  testWidgets('an animated reveal is aimed again when the row height '
+      'changes', (tester) async {
+    final controller = wideController(100);
+    addTearDown(controller.dispose);
+    final scroll = ScrollController();
+    addTearDown(scroll.dispose);
+    await tester.pumpWidget(
+      treeApp(controller: controller, scrollController: scroll),
+    );
+    var done = false;
+    unawaited(
+      controller
+          .ensureVisible(
+            wideId(70),
+            alignment: 0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.linear,
+          )
+          .then((_) => done = true),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.pumpWidget(
+      treeApp(
+        controller: controller,
+        scrollController: scroll,
+        theme: const DirectoryTreeThemeData(
+          rowExtent: 50,
+          animationDuration: Duration.zero,
+        ),
+      ),
+    );
+    expect(done, isFalse);
+    await tester.pumpAndSettle();
+    expect(done, isTrue);
+    expect(shownTop(tester, wideId(70)), 0);
+    expect(scroll.offset, 71 * 50);
+  });
+
+  group('a fling keeps its momentum through a correction', () {
+    // Twenty files that sort before every file of wideTree.
+    final early = [
+      for (var i = 0; i < 20; i++) 'a${i.toString().padLeft(2, '0')}.txt',
+    ];
+
+    // Jumps to [start] in a tree of [count] files, flings up at [speed]
+    // px/s, lets three frames pass, then applies [change] (when given) and
+    // returns the offset right after that frame and the settled offset.
+    Future<({double after, double end})> run(
+      WidgetTester tester, {
+      required int count,
+      required double start,
+      double speed = 1000,
+      Future<void> Function(DirectoryTreeController<int>, ScrollController)?
+      change,
+    }) async {
+      final controller = wideController(count);
+      addTearDown(controller.dispose);
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      scroll.jumpTo(start);
+      await tester.pump();
+      await tester.flingFrom(
+        const Offset(200, 150),
+        const Offset(0, -50),
+        speed,
+      );
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(scroll.position.activity, isA<BallisticScrollActivity>());
+      if (change != null) await change(controller, scroll);
+      await tester.pump(const Duration(milliseconds: 16));
+      final after = scroll.offset;
+      await tester.pumpAndSettle();
+      return (after: after, end: scroll.offset);
+    }
+
+    Future<void> insertEarly(
+      DirectoryTreeController<int> controller,
+      ScrollController scroll,
+      int count,
+    ) async {
+      controller.tree = wideTree(count, extra: early);
+    }
+
+    testWidgets('near the end, where the corrected offset passes the old end '
+        '(clamping physics)', (tester) async {
+      // 201 rows of 30 px: the old scroll range ends at 5730, and the
+      // correction moves the offset past it.
+      final control = await run(tester, count: 200, start: 5300);
+      final moved = await run(
+        tester,
+        count: 200,
+        start: 5300,
+        change: (controller, scroll) => insertEarly(controller, scroll, 200),
+      );
+      // Without the correction the fling stops before the end; with it the
+      // same travel ends past the old end.
+      expect(control.end, lessThan(5730));
+      expect(control.end + 20 * rowExtent, greaterThan(5730));
+      expect(moved.end, closeTo(control.end + 20 * rowExtent, 2));
+      // It still moves after the correction.
+      expect(moved.end - moved.after, greaterThan(50));
+    });
+
+    testWidgets('far from the end', (tester) async {
+      final control = await run(tester, count: 200, start: 2000);
+      final moved = await run(
+        tester,
+        count: 200,
+        start: 2000,
+        change: (controller, scroll) => insertEarly(controller, scroll, 200),
+      );
+      expect(moved.end, closeTo(control.end + 20 * rowExtent, 2));
+    });
+
+    testWidgets('near the end with bouncing physics', (tester) async {
+      final control = await run(tester, count: 200, start: 5200, speed: 600);
+      final moved = await run(
+        tester,
+        count: 200,
+        start: 5200,
+        speed: 600,
+        change: (controller, scroll) => insertEarly(controller, scroll, 200),
+      );
+      expect(control.end, lessThan(5730));
+      expect(moved.end, closeTo(control.end + 20 * rowExtent, 2));
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('near the end when the row height grows', (tester) async {
+      Future<void> taller(
+        DirectoryTreeController<int> controller,
+        ScrollController scroll,
+      ) => tester.pumpWidget(
+        treeApp(
+          controller: controller,
+          scrollController: scroll,
+          theme: const DirectoryTreeThemeData(
+            rowExtent: 40,
+            animationDuration: Duration.zero,
+          ),
+        ),
+      );
+      final control = await run(tester, count: 200, start: 5300);
+      final grown = await run(tester, count: 200, start: 5300, change: taller);
+      // The anchor moved the offset past the old end (5730); the fling
+      // keeps what it had left to travel.
+      expect(grown.after, greaterThan(5730));
+      expect(grown.end - grown.after, closeTo(control.end - control.after, 2));
+    });
+  });
+
   group('visible area', () {
     testWidgets('pageRowCount counts only the rows the viewport shows', (
       tester,

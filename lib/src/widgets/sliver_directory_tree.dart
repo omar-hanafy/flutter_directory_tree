@@ -92,12 +92,24 @@ import 'package:flutter_directory_tree/src/widgets/row_scope.dart';
 /// with its momentum, and an animated
 /// [DirectoryTreeController.ensureVisible] is aimed again at its row's new
 /// place for the time it has left (when the row is already where it was
-/// asked to be, the scroll stops there). An animation the app started
-/// with [ScrollPosition.animateTo] keeps its absolute target, so
-/// `animateTo(0)` still ends at the top; the content then moves when it
-/// gets there. A correction does not notify scroll listeners itself (as
-/// a layout correction does not); the next scroll offset they see is the
-/// corrected one.
+/// asked to be, the scroll stops there). A correction does not notify
+/// scroll listeners itself, as a layout correction does not; the fling or
+/// the animation reports the corrected offsets from its next frame on.
+///
+/// Where this does not hold:
+///
+/// * An animation the app started with [ScrollPosition.animateTo] keeps
+///   its absolute target, so `animateTo(0)` still ends at the top. Its
+///   next frame sets an offset of its own, so the content moves by the
+///   correction on that frame, and listeners see the animation's offsets.
+/// * An animated ensureVisible follows the changes of this sliver only. A
+///   change of another sliver in the same scroll view (for example a
+///   second tree that gains rows) leaves it heading for its old offset, as
+///   [Scrollable.ensureVisible] does.
+/// * Inside a [NestedScrollView], a fling that a correction restarts runs
+///   in the body alone: the header keeps the schedule the fling started
+///   with, so during that fling the header and the body can move at once.
+///   Both still end where the fling ends.
 ///
 /// Rows inserted by an incremental expand or a lazy load (a
 /// [TreeRowsChange] splice) fade and slide in over
@@ -573,7 +585,18 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final extent = theme.rowExtent!;
     final render = _renderSliver();
     if (render != null && render.itemExtent != extent) {
-      _anchorScrollOffset(extent: extent);
+      _anchorScrollOffset(extent: extent, duringBuild: true);
+      final animation = _rowAnimation;
+      if (animation != null) {
+        // The row's new place is known once this frame's layout gave the
+        // render sliver the new extent; no animation frame runs before
+        // the post-frame callbacks.
+        SchedulerBinding.instance.addPostFrameCallback((_) {
+          if (mounted && identical(_rowAnimation, animation)) {
+            _retargetRowAnimation();
+          }
+        });
+      }
     }
     final snapshot = _Snapshot<T>(
       rows: _rows,
@@ -896,8 +919,9 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   /// The correction is computed against the rows of the latest build, which
   /// are the rows the render sliver was last laid out with, and the part
   /// already applied since then is subtracted, so several changes before
-  /// one frame add up to the right total.
-  void _anchorScrollOffset({double? extent}) {
+  /// one frame add up to the right total. [duringBuild] says the call comes
+  /// from [build], with this frame's layout still to come.
+  void _anchorScrollOffset({double? extent, bool duringBuild = false}) {
     final base = _snapshot?.rows;
     final render = _renderSliver();
     final position = _position;
@@ -945,7 +969,7 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final correction = target - pixels;
     if (correction != 0) {
       position.correctBy(correction);
-      _keepCorrection(position, correction);
+      _keepCorrection(position, correction, range, duringBuild: duringBuild);
     }
     if (shown != null) {
       _shownAnchor = (
@@ -982,22 +1006,59 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
   }
 
   /// Keeps [correction], just applied to [position], from being undone by
-  /// a running scroll activity that sets absolute offsets.
+  /// a running scroll activity that sets absolute offsets; [range] is the
+  /// scroll range the next layout will report.
   ///
   /// * A fling ([BallisticScrollActivity]) starts again from the corrected
-  ///   offset with its current velocity, so it keeps its momentum.
+  ///   offset with its current velocity, so it keeps its momentum. The new
+  ///   simulation is planned against [range]: the position still has the
+  ///   extents of the latest layout, against which the corrected offset
+  ///   may lie past the end, and clamping physics would then spring back
+  ///   with no velocity. During a build ([duringBuild]) nothing restarts:
+  ///   this frame's layout follows before any animation frame, and the
+  ///   correction makes it restart the fling against the new extents
+  ///   ([ScrollActivity.applyNewDimensions]), without starting activities
+  ///   (and dispatching scroll notifications) while widgets build.
   /// * An animated showRow is aimed again by [_retargetRowAnimation], from
   ///   the corrected offset.
   /// * An animation the app started ([ScrollPosition.animateTo]) keeps its
   ///   absolute target: `animateTo(0)` still ends at the top.
   ///
-  /// The correction itself does not notify, and every later offset comes
-  /// from an activity that starts at the corrected one, so scroll
-  /// listeners only ever see real offsets.
-  void _keepCorrection(ScrollPosition position, double correction) {
+  /// The correction itself does not notify scroll listeners.
+  void _keepCorrection(
+    ScrollPosition position,
+    double correction,
+    ({double min, double max}) range, {
+    required bool duringBuild,
+  }) {
     final activity = _activityOf(position);
     if (activity is BallisticScrollActivity) {
-      activity.delegate.goBallistic(activity.velocity);
+      if (duringBuild) return;
+      final delegate = activity.delegate;
+      if (!identical(delegate, position)) {
+        // A position that coordinates others plans the fling itself.
+        delegate.goBallistic(activity.velocity);
+        return;
+      }
+      final simulation = position.physics.createBallisticSimulation(
+        position.copyWith(
+          minScrollExtent: range.min,
+          maxScrollExtent: range.max,
+        ),
+        activity.velocity,
+      );
+      if (simulation == null) {
+        delegate.goIdle();
+        return;
+      }
+      position.beginActivity(
+        BallisticScrollActivity(
+          delegate,
+          simulation,
+          position.context.vsync,
+          activity.shouldIgnorePointer,
+        ),
+      );
     } else if (activity != null &&
         identical(activity, _rowAnimation?.activity)) {
       _rowAnimation!.correction += correction;
