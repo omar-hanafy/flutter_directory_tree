@@ -966,7 +966,11 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     }
     final applied = shown?.applied ?? _appliedAnchorCorrection;
     final delta = desired - applied;
-    if (delta == 0) return;
+    // An earlier correction this frame turned off the framework's own
+    // boundary check for the next layout (the physics keep a corrected
+    // offset as it is), so the offset is clamped again even when this
+    // change moves nothing.
+    if (delta == 0 && applied == 0) return;
     // The scroll physics keep a corrected offset as it is, so it must land
     // inside the scroll range of the new rows here.
     final range = _predictedScrollRange(
@@ -977,9 +981,18 @@ class _SliverDirectoryTreeState<T> extends State<SliverDirectoryTree<T>>
     final pixels = position.pixels;
     // An overscroll (bouncing physics past an end) is kept as it is, so
     // the first visible row keeps its place and the spring goes on; a
-    // correction never creates one.
-    final overscrollStart = math.max(0.0, position.minScrollExtent - pixels);
-    final overscrollEnd = math.max(0.0, pixels - position.maxScrollExtent);
+    // correction never creates one. It is measured at the offset of the
+    // latest layout, whose extents the position still reports: the
+    // corrections applied since may have moved the offset past the old end
+    // into the longer range of the new rows. Right after showRow jumped
+    // there is none, since the jump lands inside the new range.
+    final laidOut = pixels - applied;
+    final overscrollStart = shown != null
+        ? 0.0
+        : math.max(0.0, position.minScrollExtent - laidOut);
+    final overscrollEnd = shown != null
+        ? 0.0
+        : math.max(0.0, laidOut - position.maxScrollExtent);
     final target = clampDouble(
       pixels + delta,
       range.min - overscrollStart,

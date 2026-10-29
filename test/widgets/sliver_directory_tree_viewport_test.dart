@@ -1339,6 +1339,83 @@ void main() {
     });
   });
 
+  group('several corrections before one frame', () {
+    // The offset past the end on the frame after [change] and on each of
+    // the following frames, for a 300 px view at the end of [controller].
+    Future<List<double>> pastEndAfter(
+      WidgetTester tester,
+      DirectoryTreeController<int> controller,
+      void Function() change,
+    ) async {
+      final scroll = ScrollController();
+      addTearDown(scroll.dispose);
+      await tester.pumpWidget(
+        treeApp(controller: controller, scrollController: scroll),
+      );
+      scroll.jumpTo(scroll.position.maxScrollExtent);
+      await tester.pump();
+      change();
+      final past = <double>[];
+      for (var i = 0; i < 10; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+        past.add(scroll.position.pixels - scroll.position.maxScrollExtent);
+      }
+      await tester.pumpAndSettle();
+      past.add(scroll.position.pixels - scroll.position.maxScrollExtent);
+      return past;
+    }
+
+    testWidgets('two tree changes at the end leave the view at the new end', (
+      tester,
+    ) async {
+      final controller = wideController(200);
+      addTearDown(controller.dispose);
+      final past = await pastEndAfter(tester, controller, () {
+        // Five rows above the view, then six above it and ten fewer below.
+        controller
+          ..tree = wideTree(200, extra: [for (var i = 0; i < 5; i++) 'a$i.txt'])
+          ..tree = DirectoryTree<int>.build([
+            for (var i = 0; i < 6; i++) TreeEntry<int>.file('/w/a$i.txt'),
+            for (var i = 0; i < 191; i++)
+              TreeEntry<int>.file('/w/${wideName(i)}'),
+          ]);
+      });
+      // 198 rows of 30 px in a 300 px view: the end is 5640. No frame is
+      // past it, and nothing springs back.
+      expect(past, everyElement(0));
+      expect(
+        tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels,
+        5640,
+      );
+    });
+
+    testWidgets('an expand above and a collapse below at the end leave the '
+        'view at the new end', (tester) async {
+      final controller = DirectoryTreeController<int>(
+        tree: DirectoryTree<int>.build([
+          for (var i = 0; i < 5; i++) TreeEntry<int>.file('/r/a/a$i.txt'),
+          for (var i = 0; i < 190; i++)
+            TreeEntry<int>.file('/r/m/${wideName(i)}'),
+          for (var i = 0; i < 5; i++) TreeEntry<int>.file('/r/z/z$i.txt'),
+        ]),
+        expansion: ExpansionState.withExpanded(const [
+          NodeId('/r'),
+          NodeId('/r/m'),
+          NodeId('/r/z'),
+        ]),
+      );
+      addTearDown(controller.dispose);
+      final past = await pastEndAfter(tester, controller, () {
+        // The expand moves the first visible row; the collapse below it
+        // does not, but it shortens the tree.
+        controller
+          ..expand(const NodeId('/r/a'))
+          ..collapse(const NodeId('/r/z'));
+      });
+      expect(past, everyElement(0));
+    });
+  });
+
   group('visible area', () {
     testWidgets('pageRowCount counts only the rows the viewport shows', (
       tester,
