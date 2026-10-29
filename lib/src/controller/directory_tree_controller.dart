@@ -2465,7 +2465,9 @@ _Scroll _minimalScroll(NodeId id) => (
 /// One running load; the controller applies its result only while it is
 /// the directory's entry in the controller's load map.
 final class _PendingLoad {
-  final Completer<void> _done = Completer<void>();
+  // Synchronous, as an async function's future completes: callers resume
+  // as soon as the result is applied, before loads it started run.
+  final Completer<void> _done = Completer<void>.sync();
 
   // The load that took this one's place after it was discarded: this one
   // completes with it.
