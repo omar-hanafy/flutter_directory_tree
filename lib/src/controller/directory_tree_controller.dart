@@ -1332,12 +1332,15 @@ class DirectoryTreeController<T> extends ChangeNotifier {
   /// With [compactFolders], [id] may sit inside a chain of single-directory
   /// children whose deepest directory decides the chain's row; the core
   /// acts on that one. The walk goes down the chain from [id] and returns
-  /// the first directory whose state differs in either expansion state, or
-  /// [id] when nothing changed. O(chain length).
+  /// the first directory whose state differs in either expansion state,
+  /// else (nothing changed) the deepest directory of the chain, which is
+  /// just [id] without compact folders. O(chain length).
   NodeId _toggledDirectory(NodeId id, TreeRows<T> before, TreeRows<T> after) {
+    var last = id;
     var node = _tree[id];
     while (node is DirectoryNode<T>) {
       final current = node.id;
+      last = current;
       if (before.expansion.isExpanded(current) !=
               after.expansion.isExpanded(current) ||
           before.requestedExpansion.isExpanded(current) !=
@@ -1347,7 +1350,7 @@ class DirectoryTreeController<T> extends ChangeNotifier {
       if (!_compactFolders || node.children.length != 1) break;
       node = _tree[node.children.first];
     }
-    return id;
+    return last;
   }
 
   /// Applies [transform] to both expansion states and recomputes the rows

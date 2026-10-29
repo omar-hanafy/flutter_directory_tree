@@ -231,13 +231,26 @@ final class _Run {
   }
 
   /// Updates [model] for an expand or collapse of [id] as the contract
-  /// says: the row's directory for an id with a row, the id otherwise.
+  /// says: the row's directory for an id with a row; otherwise, with compact
+  /// folders, the deepest directory of the chain [id] belongs to (whose
+  /// state the chain's row reads), else the id itself.
   void modelToggle(_Snapshot before, NodeId id, {required bool expand}) {
     final node = before.tree[id];
     if (node is! DirectoryNode<int>) return;
     if (!before.showRoots && node.isRoot) return;
     final index = before.rows.indexOfNode(id);
-    final target = index >= 0 ? before.rows[index].id : id;
+    var target = id;
+    if (index >= 0) {
+      target = before.rows[index].id;
+    } else if (before.compactFolders) {
+      var current = node;
+      while (current.children.length == 1) {
+        final child = before.tree[current.children.first];
+        if (child is! DirectoryNode<int>) break;
+        current = child;
+      }
+      target = current.id;
+    }
     model = model.setExpanded(target, expanded: expand);
   }
 
