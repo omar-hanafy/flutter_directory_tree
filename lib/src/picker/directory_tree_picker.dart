@@ -177,9 +177,9 @@ class DirectoryTreePicker<T> extends StatefulWidget {
   /// The list is unmodifiable, in display order (pre-order), and empty when
   /// nothing valid is picked. The pick is computed once per change of the
   /// selection, the checks, or [tree], in O(k log k) for k picked nodes;
-  /// focus moves and scrolling never compute it. It may call `setState`: changes that happen
-  /// while the widgets build (a new [tree] or [mode]) are reported after
-  /// the frame.
+  /// focus moves and scrolling never compute it. It may call `setState`:
+  /// changes that happen while the widgets build (a new [tree] or [mode])
+  /// are reported after the frame.
   final ValueChanged<List<TreeNode<T>>>? onChanged;
 
   /// Called in single mode when the user activates a row that [mode]

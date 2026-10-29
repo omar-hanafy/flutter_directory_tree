@@ -100,10 +100,11 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// and so are Ctrl and Alt, except where a platform types text with them:
 /// Option (Alt) without Ctrl on macOS, iOS, and Android, and AltGr on
 /// Windows, which reports Ctrl and Alt together. (Linux reports AltGr as a
-/// key of its own, so its characters join as well.) Space joins only while a search is in
-/// progress; otherwise it toggles the selection. The search text resets
-/// [typeAheadTimeout] after the latest character, when another key (not a
-/// modifier) is pressed, and when the tree loses the focus.
+/// key of its own, so its characters join as well.) Space joins only while
+/// a search is in progress; otherwise it toggles the selection. The search
+/// text resets [typeAheadTimeout] after the latest character, when
+/// another key (not a modifier) is pressed, and when the tree loses the
+/// focus.
 ///
 /// After each character the controller's [DirectoryTreeController.rows] are
 /// searched for a [TreeRow.label] that starts with the search text,
@@ -119,8 +120,9 @@ import 'package:flutter_directory_tree/src/widgets/directory_tree_row_details.da
 /// The row found is focused and selected with
 /// [DirectoryTreeController.select] (only focused, with
 /// [DirectoryTreeController.focus], when [selectionFollowsFocus] is false),
-/// which also scrolls it into view; when no row matches, nothing changes. A search reads each row's label at most
-/// once per key press, so a key press with no match costs O(rows).
+/// which also scrolls it into view; when no row matches, nothing changes.
+/// A search reads each row's label at most once per key press, so a key
+/// press with no match costs O(rows).
 class DirectoryTreeKeyboard<T> extends StatefulWidget {
   /// Creates the keyboard handling for [controller]'s rows around [child].
   const DirectoryTreeKeyboard({
