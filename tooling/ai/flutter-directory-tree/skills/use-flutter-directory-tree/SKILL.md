@@ -403,14 +403,18 @@ Future<List<NodeId>?> pickFolders(
   `SliverDirectoryTree`. Keep the menu host above the keyboard widget:
   Shift+F10 and the menu key reach it only from there, and a host inside
   the keyboard opens only from secondary taps. The sliver opens no menu by
-  itself: wire its `onRowSecondaryTap` to
-  `DirectoryTreeContextMenu.maybeOf<T>(context)?.open(row: row, globalPosition: globalPosition)`
-  with a context below the host (a `Builder`), and give the keyboard and
-  the sliver the same `onActivate`. With drag and drop, set the sliver's
+  itself: call `open(row: row, globalPosition: globalPosition)` on the
+  host's state from its `onRowSecondaryTap`, through
+  `DirectoryTreeContextMenu.maybeOf<T>(context)` with a context below the
+  host (a `Builder`) or a `GlobalKey<DirectoryTreeContextMenuState<T>>` kept
+  in a `State`. With drag and drop, set the sliver's
   `rowDecorator: DirectoryTreeDragAndDropScope.decorateRow` and
   `secondaryTapOnLongPress: false`, and open the menu from the scope's
-  `onLongPressWithoutDrag`. The API reference shows the whole stack
-  (`composedExplorer`).
+  `onLongPressWithoutDrag` through the key, as `DirectoryTreeView` does:
+  the scope sits above the host, so `maybeOf` finds nothing there and the
+  touch menu silently never opens. Give the keyboard and the sliver the
+  same `onActivate`. The API reference shows both stacks
+  (`composedExplorer`, and `DraggableExplorer` with drag and drop).
 
 ## Accessibility
 
@@ -423,8 +427,10 @@ actions; the API reference lists the labels to translate.
   O(selection size + log rows), and `extendSelection` O(range size + log
   rows); the view rebuilds only the rows whose details changed.
 - Opening or closing one folder costs O(log rows + the rows that appear or
-  disappear) without calling the filter, plus copying the row list and the
-  expansion state, a plain copy that still grows with the visible rows.
+  disappear) without calling the filter, plus copying the row list, which
+  grows with the visible rows, and the expansion state, which grows with
+  its exceptions (every folder whose state differs from the default,
+  visible or not).
 - Full passes happen only for a new tree, a query or filter change,
   `compactFolders`/`showRoots` changes, and bulk commands (`expandAll`,
   `selectAll`, `checkAll`).

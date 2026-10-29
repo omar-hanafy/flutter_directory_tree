@@ -335,10 +335,24 @@ void main() {
           reason: 'the dartdoc of $member',
         );
       }
+      expect(_normalize(skill), contains('plus copying the row list'));
       expect(
         _normalize(skill),
-        contains('plus copying the row list and the expansion state'),
+        contains('the expansion state, which grows with its exceptions'),
       );
+      final expansion = File(
+        '${_packageRoot('directory_tree').path}/src/view/expansion_state.dart',
+      ).readAsStringSync();
+      for (final member in [
+        'ExpansionState expand(',
+        'ExpansionState collapse(',
+      ]) {
+        expect(
+          _docOf(expansion, member),
+          contains('copies the exceptions, in O(number of exceptions)'),
+          reason: member,
+        );
+      }
       for (final member in [
         'TreeRows<T> expandNode(',
         'TreeRows<T> collapseNode(',
@@ -377,6 +391,70 @@ void main() {
       await tester.tap(find.text('README.md'), buttons: kSecondaryMouseButton);
       await tester.pumpAndSettle();
       expect(find.text('Expand all below'), findsOneWidget);
+    });
+
+    testWidgets('DraggableExplorer: a touch long press without a drag opens '
+        'the menu through the key', (tester) async {
+      expect(
+        currentBlocks.where((b) => b.contains('class DraggableExplorer ')),
+        hasLength(1),
+        reason: 'The use skill shows the drag and drop stack.',
+      );
+      final controller = _sample();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(_app(DraggableExplorer(controller: controller)));
+
+      await tester.longPress(find.text('README.md'));
+      await tester.pumpAndSettle();
+      expect(find.text('Expand all below'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Expand all below'), findsNothing);
+
+      await tester.tap(find.text('test'), buttons: kSecondaryMouseButton);
+      await tester.pumpAndSettle();
+      expect(find.text('Expand all below'), findsOneWidget);
+    });
+
+    testWidgets('maybeOf from the drag and drop scope above the host finds '
+        'nothing, so the touch menu never opens', (tester) async {
+      final controller = _sample();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        _app(
+          Builder(
+            builder: (context) => DirectoryTreeDragAndDropScope<Object?>(
+              controller: controller,
+              dragAndDrop: DirectoryTreeDragAndDrop(onDrop: (details) {}),
+              onLongPressWithoutDrag: (row, globalPosition) =>
+                  DirectoryTreeContextMenu.maybeOf<Object?>(context)
+                      ?.open(row: row, globalPosition: globalPosition),
+              child: DirectoryTreeContextMenu<Object?>(
+                controller: controller,
+                builder: (context, details) => [
+                  MenuItemButton(onPressed: () {}, child: const Text('Rename')),
+                ],
+                child: DirectoryTreeKeyboard(
+                  controller: controller,
+                  child: CustomScrollView(
+                    slivers: [
+                      SliverDirectoryTree(
+                        controller: controller,
+                        rowDecorator:
+                            DirectoryTreeDragAndDropScope.decorateRow<Object?>,
+                        secondaryTapOnLongPress: false,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.longPress(find.text('README.md'));
+      await tester.pumpAndSettle();
+      expect(find.text('Rename'), findsNothing);
     });
 
     testWidgets('a menu host inside the keyboard widget opens only from '
@@ -1519,6 +1597,61 @@ Widget composedExplorer(DirectoryTreeController<Object?> controller) {
   );
 }
 
+class DraggableExplorer extends StatefulWidget {
+  const DraggableExplorer({super.key, required this.controller});
+
+  final DirectoryTreeController<Object?> controller;
+
+  @override
+  State<DraggableExplorer> createState() => _DraggableExplorerState();
+}
+
+class _DraggableExplorerState extends State<DraggableExplorer> {
+  // The scope is above the menu host, so it reaches the host by this key.
+  final _menuKey = GlobalKey<DirectoryTreeContextMenuState<Object?>>();
+
+  void _openMenu(TreeRow<Object?> row, Offset globalPosition) =>
+      _menuKey.currentState?.open(row: row, globalPosition: globalPosition);
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    return DirectoryTreeDragAndDropScope<Object?>(
+      controller: controller,
+      dragAndDrop: DirectoryTreeDragAndDrop(
+        onDrop: (details) => debugPrint(
+          'move ${details.nodes.length} into ${details.target.path}',
+        ),
+      ),
+      onLongPressWithoutDrag: _openMenu, // a touch long press that did not drag
+      child: DirectoryTreeContextMenu<Object?>(
+        key: _menuKey,
+        controller: controller,
+        builder: (context, details) => [
+          MenuItemButton(
+            onPressed: () => controller.expandSubtree(details.row.id),
+            child: const Text('Expand all below'),
+          ),
+        ],
+        child: DirectoryTreeKeyboard(
+          controller: controller,
+          child: CustomScrollView(
+            slivers: [
+              SliverDirectoryTree(
+                controller: controller,
+                rowDecorator:
+                    DirectoryTreeDragAndDropScope.decorateRow<Object?>,
+                secondaryTapOnLongPress: false, // the scope owns long presses
+                onRowSecondaryTap: _openMenu,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 
@@ -2218,6 +2351,11 @@ final Map<String, void Function()> _names = {
   // The skills' own examples, compiled in this file.
   'watchRows': () => watchRows,
   'composedExplorer': () => composedExplorer,
+  'DraggableExplorer': () => DraggableExplorer,
+  'GlobalKey': () => GlobalKey,
+  'State': () => State,
+  'currentState': () => GlobalKey<State<StatefulWidget>>().currentState,
+  'DirectoryTreeContextMenuState': () => DirectoryTreeContextMenuState,
   'Text': () => Text,
   'debugPrint': () => debugPrint,
   'CustomScrollView': () => CustomScrollView,

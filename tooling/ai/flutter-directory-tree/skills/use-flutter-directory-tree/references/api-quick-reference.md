@@ -228,6 +228,66 @@ Widget composedExplorer(DirectoryTreeController<Object?> controller) {
 }
 ```
 
+With drag and drop, the scope sits above the menu host, so its
+`onLongPressWithoutDrag` reaches the host through a `GlobalKey` kept in a
+`State` (`maybeOf` from there finds nothing), as `DirectoryTreeView` does:
+
+```dart
+class DraggableExplorer extends StatefulWidget {
+  const DraggableExplorer({super.key, required this.controller});
+
+  final DirectoryTreeController<Object?> controller;
+
+  @override
+  State<DraggableExplorer> createState() => _DraggableExplorerState();
+}
+
+class _DraggableExplorerState extends State<DraggableExplorer> {
+  // The scope is above the menu host, so it reaches the host by this key.
+  final _menuKey = GlobalKey<DirectoryTreeContextMenuState<Object?>>();
+
+  void _openMenu(TreeRow<Object?> row, Offset globalPosition) =>
+      _menuKey.currentState?.open(row: row, globalPosition: globalPosition);
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = widget.controller;
+    return DirectoryTreeDragAndDropScope<Object?>(
+      controller: controller,
+      dragAndDrop: DirectoryTreeDragAndDrop(
+        onDrop: (details) => debugPrint(
+          'move ${details.nodes.length} into ${details.target.path}',
+        ),
+      ),
+      onLongPressWithoutDrag: _openMenu, // a touch long press that did not drag
+      child: DirectoryTreeContextMenu<Object?>(
+        key: _menuKey,
+        controller: controller,
+        builder: (context, details) => [
+          MenuItemButton(
+            onPressed: () => controller.expandSubtree(details.row.id),
+            child: const Text('Expand all below'),
+          ),
+        ],
+        child: DirectoryTreeKeyboard(
+          controller: controller,
+          child: CustomScrollView(
+            slivers: [
+              SliverDirectoryTree(
+                controller: controller,
+                rowDecorator: DirectoryTreeDragAndDropScope.decorateRow<Object?>,
+                secondaryTapOnLongPress: false, // the scope owns long presses
+                onRowSecondaryTap: _openMenu,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+```
+
 ## Callback types and details
 
 - `typedef DirectoryTreeRowBuilder<T> = Widget Function(BuildContext
