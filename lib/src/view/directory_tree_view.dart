@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_directory_tree/src/controller/directory_tree_controller.dart';
+import 'package:flutter_directory_tree/src/controller/directory_tree_viewport.dart';
 import 'package:flutter_directory_tree/src/dnd/directory_tree_drag_and_drop.dart';
 import 'package:flutter_directory_tree/src/keyboard/directory_tree_keyboard.dart';
 import 'package:flutter_directory_tree/src/keyboard/directory_tree_shortcuts.dart';
@@ -168,8 +169,9 @@ class DirectoryTreeView<T> extends StatefulWidget {
   /// it too, for the focused row, the same way: with [selectOnTap] the row
   /// is selected first when it is not selected, and the row is scrolled
   /// into view. The call comes after the next frame, once the row is laid
-  /// out, at the bottom-start corner of the row (bottom-left in
-  /// left-to-right text, bottom-right in right-to-left text), or at the
+  /// out, at the bottom-start corner of the row in this view, not in
+  /// another view of the same controller (bottom-left in left-to-right
+  /// text, bottom-right in right-to-left text), or at the
   /// center of the view when the row cannot be shown (for example a view
   /// with no room for rows). The keys reach the
   /// widgets above the view while no row is focused, and an ancestor
@@ -381,6 +383,10 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
   final GlobalKey _keyboardKey = GlobalKey(debugLabel: 'keyboard');
   final GlobalKey _scrollViewKey = GlobalKey(debugLabel: 'scroll view');
 
+  // The view's own sliver, whose viewport places the Shift+F10 fallback:
+  // other views of the same controller have their own copies of the row.
+  final GlobalKey _sliverKey = GlobalKey(debugLabel: 'sliver');
+
   late final Action<OpenTreeContextMenuIntent> _keyboardSecondaryTap =
       Action<OpenTreeContextMenuIntent>.overridable(
         defaultAction: _KeyboardSecondaryTapAction<T>(this),
@@ -512,7 +518,12 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
     final rows = controller.rows;
     final current = rows.rowOf(id);
     if (current == null) return;
-    final rect = controller.globalRowRect(rows.indexOfNode(id));
+    // This view's row, not the copy in another view of the controller.
+    final index = rows.indexOfNode(id);
+    final rect = switch (_sliverKey.currentState) {
+      final DirectoryTreeViewport viewport => viewport.globalRowRect(index),
+      _ => controller.globalRowRect(index),
+    };
     final Offset position;
     if (rect != null && rect.isFinite) {
       final rtl = Directionality.maybeOf(context) == TextDirection.rtl;
@@ -535,6 +546,7 @@ class _DirectoryTreeViewState<T> extends State<DirectoryTreeView<T>> {
         widget.onRowSecondaryTap != null || contextMenuBuilder != null;
 
     Widget sliver = SliverDirectoryTree<T>(
+      key: _sliverKey,
       controller: controller,
       rowBuilder: widget.rowBuilder,
       rowDecorator: dragAndDrop == null
